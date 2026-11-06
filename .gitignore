@@ -1,0 +1,16 @@
+/result
+result-*
+.direnv/
+
+/fmesstui
+/bin/
+*.exe
+*.test
+*.out
+
+.env
+session.json
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
