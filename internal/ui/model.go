@@ -10,7 +10,6 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"fmesstui/internal/store"
 )
@@ -48,50 +47,18 @@ type Model struct {
 	ready      bool
 	selectedID int64
 	status     string
+	toast      string
 	width      int
 	height     int
 }
 
-type threadsLoadedMsg struct {
-	threads []store.Thread
-	err     error
-}
-
-type messagesLoadedMsg struct {
-	threadID int64
-	messages []store.Message
-	err      error
-}
-
-type sendFinishedMsg struct {
-	pendingID string
-	threadID  int64
-	result    SendResult
-	text      string
-	err       error
-}
-
-type RefreshMsg struct{}
-
 func New(ctx context.Context, s *store.Store, sender Sender) Model {
-	delegate := list.NewDefaultDelegate()
-	l := list.New(nil, delegate, 0, 0)
-	l.Title = "Threads"
-	l.SetShowStatusBar(false)
-	l.SetFilteringEnabled(true)
-	l.DisableQuitKeybindings()
-	ta := textarea.New()
-	ta.Placeholder = "message"
-	ta.ShowLineNumbers = false
-	ta.Prompt = "> "
-	ta.SetHeight(2)
-	ta.Focus()
 	return Model{
 		store:    s,
 		sender:   sender,
 		ctx:      ctx,
-		list:     l,
-		composer: ta,
+		list:     newThreadList(),
+		composer: newComposer(),
 		status:   "loading",
 	}
 }
@@ -114,6 +81,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.loadMessages(m.selectedID))
 		}
 		return m, tea.Batch(cmds...)
+	case toastExpiredMsg:
+		if msg.message == m.toast {
+			m.toast = ""
+			m.layout()
+		}
+		return m, nil
+	case toastMsg:
+		m.toast = msg.message
+		m.layout()
+		return m, tea.Tick(5*time.Second, func(time.Time) tea.Msg {
+			return toastExpiredMsg{message: msg.message}
+		})
 	case threadsLoadedMsg:
 		if msg.err != nil {
 			m.status = msg.err.Error()
@@ -220,39 +199,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m Model) View() string {
-	if !m.ready {
-		return "loading"
-	}
-	left := m.list.View()
-	right := lipgloss.JoinVertical(lipgloss.Left, m.viewport.View(), m.composer.View(), m.status)
-	return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
-}
-
-func (m *Model) layout() {
-	leftWidth := m.width / 3
-	if leftWidth < 20 {
-		leftWidth = 20
-	}
-	if leftWidth > m.width-20 {
-		leftWidth = m.width / 2
-	}
-	rightWidth := m.width - leftWidth
-	if rightWidth < 1 {
-		rightWidth = 1
-	}
-	composerHeight := 3
-	statusHeight := 1
-	listHeight := m.height
-	viewHeight := m.height - composerHeight - statusHeight
-	if viewHeight < 1 {
-		viewHeight = 1
-	}
-	m.list.SetSize(leftWidth, listHeight)
-	m.viewport = viewport.New(rightWidth, viewHeight)
-	m.composer.SetWidth(rightWidth)
-}
-
 func (m Model) loadThreads() tea.Msg {
 	threads, err := m.store.ListThreads(m.ctx)
 	return threadsLoadedMsg{threads: threads, err: err}
@@ -313,26 +259,6 @@ func (m Model) selectedThreadType() int64 {
 	return 0
 }
 
-func renderMessages(messages []store.Message) string {
-	if len(messages) == 0 {
-		return "no messages"
-	}
-	var b strings.Builder
-	for _, msg := range messages {
-		ts := msg.Timestamp.Local().Format(time.Kitchen)
-		line := fmt.Sprintf("[%s] %d: %s", ts, msg.SenderID, msg.Text)
-		if msg.Pending {
-			line += " (pending)"
-		}
-		if msg.Error != "" {
-			line += " error=" + msg.Error
-		}
-		b.WriteString(line)
-		b.WriteByte('\n')
-	}
-	return b.String()
-}
-
 type App struct {
 	program *tea.Program
 }
@@ -347,6 +273,13 @@ func (a *App) Notify() {
 		return
 	}
 	a.program.Send(RefreshMsg{})
+}
+
+func (a *App) Toast(message string) {
+	if a == nil || a.program == nil || strings.TrimSpace(message) == "" {
+		return
+	}
+	a.program.Send(toastMsg{message: message})
 }
 
 func (a *App) Run() error {
