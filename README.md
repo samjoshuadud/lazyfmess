@@ -48,7 +48,9 @@ Default path: `$XDG_CONFIG_HOME/fmesstui` (`os.UserConfigDir()/fmesstui`).
 
 Override with `-data-dir /path/to/dir`.
 
-That directory holds `cookies.json`, `messagix-state.json`, `device.db`, and `messages.db`. Do not commit those files.
+That directory holds `cookies.json`, `messagix-state.json`, `device.db`, `messages.db`, and `fmesstui.log`. Do not commit those files.
+
+Protocol logs go to `fmesstui.log`. The terminal stays with the TUI. Pass `-verbose` to enable trace-level protocol logs in the file.
 
 ## Build and run
 
@@ -61,6 +63,12 @@ Or:
 
 ```bash
 go run ./cmd/fmesstui -data-dir "$HOME/.config/fmesstui"
+```
+
+For trace-level protocol logs in the file:
+
+```bash
+go run ./cmd/fmesstui -verbose
 ```
 
 Controls: select a thread in the left list, type in the composer, Enter sends, Esc or Ctrl+C quits.

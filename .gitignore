@@ -14,3 +14,4 @@ session.json
 *.db-journal
 *.sqlite
 *.sqlite3
+*.log
