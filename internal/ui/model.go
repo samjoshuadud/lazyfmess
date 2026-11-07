@@ -61,30 +61,37 @@ func (t threadItem) Description() string {
 func (t threadItem) FilterValue() string { return t.thread.Title }
 
 type Model struct {
-	store      *store.Store
-	sender     Sender
-	history    HistoryLoader
-	unlocker   HistoryUnlocker
-	onReady    func()
-	prefillPIN string
-	ctx        context.Context
-	list       list.Model
-	viewport   viewport.Model
-	composer   textarea.Model
-	pinInput   textinput.Model
-	focus      focusPane
-	ready      bool
-	showPIN    bool
-	showHelp   bool
-	pinErr     string
-	selectedID int64
-	status     string
-	toast      string
-	width      int
-	height     int
-	leftWidth  int
-	rightWidth int
-	messages   []store.Message
+	store         *store.Store
+	sender        Sender
+	history       HistoryLoader
+	unlocker      HistoryUnlocker
+	searcher      PersonSearcher
+	onReady       func()
+	prefillPIN    string
+	ctx           context.Context
+	list          list.Model
+	viewport      viewport.Model
+	composer      textarea.Model
+	pinInput      textinput.Model
+	searchInput   textinput.Model
+	focus         focusPane
+	ready         bool
+	showPIN       bool
+	showHelp      bool
+	showSearch    bool
+	pinErr        string
+	searchErr     string
+	searchQuery   string
+	searchResults []PersonHit
+	searchIndex   int
+	selectedID    int64
+	status        string
+	toast         string
+	width         int
+	height        int
+	leftWidth     int
+	rightWidth    int
+	messages      []store.Message
 }
 
 type historyFinishedMsg struct {
@@ -97,7 +104,7 @@ type bootMsg struct {
 	err    error
 }
 
-func New(ctx context.Context, s *store.Store, sender Sender, history HistoryLoader, unlocker HistoryUnlocker, cfg Config) Model {
+func New(ctx context.Context, s *store.Store, sender Sender, history HistoryLoader, unlocker HistoryUnlocker, searcher PersonSearcher, cfg Config) Model {
 	composer := newComposer()
 	composer.Blur()
 	return Model{
@@ -105,6 +112,7 @@ func New(ctx context.Context, s *store.Store, sender Sender, history HistoryLoad
 		sender:     sender,
 		history:    history,
 		unlocker:   unlocker,
+		searcher:   searcher,
 		onReady:    cfg.OnReady,
 		prefillPIN: strings.TrimSpace(cfg.PrefillPIN),
 		ctx:        ctx,
@@ -187,6 +195,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.kickHistorySync()
 		return m, nil
+	case searchResultMsg:
+		return m.updateSearch(msg)
+	case openPersonMsg:
+		return m.updateSearch(msg)
 	case RefreshMsg:
 		if m.selectedID != 0 {
 			return m, tea.Batch(m.loadThreads, m.loadMessages(m.selectedID))
@@ -291,6 +303,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.showPIN {
 		return m.updatePIN(msg)
 	}
+	if m.showSearch {
+		return m.updateSearch(msg)
+	}
 	if m.showHelp {
 		return m.updateHelp(msg)
 	}
@@ -375,6 +390,11 @@ func (m Model) updateMain(msg tea.Msg) (Model, tea.Cmd) {
 			if m.focus == focusMessages {
 				m.setFocus(focusList)
 				return m, nil
+			}
+		case "s":
+			if m.focus != focusComposer {
+				m.openSearchModal()
+				return m, textinput.Blink
 			}
 		case "/":
 			if m.focus == focusList {
@@ -543,8 +563,8 @@ type App struct {
 	program *tea.Program
 }
 
-func NewApp(ctx context.Context, s *store.Store, sender Sender, history HistoryLoader, unlocker HistoryUnlocker, cfg Config) *App {
-	p := tea.NewProgram(New(ctx, s, sender, history, unlocker, cfg), tea.WithAltScreen(), tea.WithContext(ctx))
+func NewApp(ctx context.Context, s *store.Store, sender Sender, history HistoryLoader, unlocker HistoryUnlocker, searcher PersonSearcher, cfg Config) *App {
+	p := tea.NewProgram(New(ctx, s, sender, history, unlocker, searcher, cfg), tea.WithAltScreen(), tea.WithContext(ctx))
 	return &App{program: p}
 }
 

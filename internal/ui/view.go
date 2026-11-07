@@ -17,6 +17,9 @@ func (m Model) View() string {
 	if m.showPIN {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderPINModal())
 	}
+	if m.showSearch {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderSearchModal())
+	}
 	if m.showHelp {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderHelpModal())
 	}
@@ -91,7 +94,7 @@ func (m Model) renderConversation() string {
 func (m Model) helpLine() string {
 	switch m.focus {
 	case focusList:
-		return "j/k move · enter open · / filter · tab pane · i compose · ? help · q quit"
+		return "j/k move · enter open · / filter · s people · tab pane · i compose · ? help · q quit"
 	case focusMessages:
 		return "j/k scroll · i compose · h back · tab pane · ? help · q quit"
 	default:
@@ -113,6 +116,7 @@ Navigation
   i a c        focus composer
   esc          back to inbox
   /            filter inbox
+  s            search people
   ?            toggle this help
   q            quit
 `)

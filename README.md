@@ -89,6 +89,7 @@ Controls follow common lazy-style TUI navigation:
 - `tab` cycles inbox → chat → compose
 - `h`/`l` move between panes
 - `/` filters the inbox
+- `s` searches Messenger people and opens a chat
 - `?` shows key help
 - `q` quits (Esc goes back a pane)
 

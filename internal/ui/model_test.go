@@ -36,7 +36,7 @@ func TestModelLoadsThreadsAndMessages(t *testing.T) {
 		t.Fatalf("UpsertMessage: %v", err)
 	}
 
-	m := New(ctx, s, stubSender{id: 1}, nil, nil, Config{})
+	m := New(ctx, s, stubSender{id: 1}, nil, nil, nil, Config{})
 	msg := m.loadThreads()
 	model, cmd := m.Update(msg)
 	m = model.(Model)
@@ -70,7 +70,7 @@ func TestRefreshReloadsThreads(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 	defer s.Close()
-	m := New(ctx, s, stubSender{id: 1}, nil, nil, Config{})
+	m := New(ctx, s, stubSender{id: 1}, nil, nil, nil, Config{})
 	model, cmd := m.Update(RefreshMsg{})
 	m = model.(Model)
 	if cmd == nil {
@@ -92,7 +92,7 @@ func TestHelpToggle(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 	defer s.Close()
-	m := New(ctx, s, stubSender{id: 1}, nil, nil, Config{})
+	m := New(ctx, s, stubSender{id: 1}, nil, nil, nil, Config{})
 	m.ready = true
 	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
 	m = model.(Model)
@@ -104,4 +104,66 @@ func TestHelpToggle(t *testing.T) {
 	if m.showHelp {
 		t.Fatal("expected help closed")
 	}
+}
+
+type stubSearcher struct {
+	results []PersonHit
+	opened  PersonHit
+}
+
+func (s *stubSearcher) SearchPeople(context.Context, string) ([]PersonHit, error) {
+	return s.results, nil
+}
+
+func (s *stubSearcher) OpenPerson(_ context.Context, person PersonHit) (int64, error) {
+	s.opened = person
+	return person.ID, nil
+}
+
+func TestPeopleSearchOpensChat(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	searcher := &stubSearcher{
+		results: []PersonHit{{ID: 42, Name: "Dana", Context: "person", ThreadType: 1}},
+	}
+	m := New(ctx, s, stubSender{id: 1}, nil, nil, searcher, Config{})
+	m.ready = true
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	m = model.(Model)
+	if !m.showSearch {
+		t.Fatal("expected people search open")
+	}
+	m.searchInput.SetValue("Dana")
+	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = model.(Model)
+	if cmd == nil {
+		t.Fatal("expected search command")
+	}
+	model, _ = m.Update(cmd())
+	m = model.(Model)
+	if len(m.searchResults) != 1 || m.searchResults[0].Name != "Dana" {
+		t.Fatalf("search results: %+v", m.searchResults)
+	}
+	model, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = model.(Model)
+	if cmd == nil {
+		t.Fatal("expected open command")
+	}
+	model, cmd = m.Update(cmd())
+	m = model.(Model)
+	if m.showSearch {
+		t.Fatal("expected people search closed")
+	}
+	if m.selectedID != 42 {
+		t.Fatalf("selectedID: %d", m.selectedID)
+	}
+	if searcher.opened.ID != 42 {
+		t.Fatalf("opened: %+v", searcher.opened)
+	}
+	_ = cmd
 }

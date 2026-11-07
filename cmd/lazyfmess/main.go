@@ -84,6 +84,41 @@ func (u unlockAdapter) Unlock(ctx context.Context, pin string) error {
 	return u.client.UnlockHistory(ctx, pin)
 }
 
+type searchAdapter struct {
+	client *meta.Client
+	store  *store.Store
+}
+
+func (s searchAdapter) SearchPeople(ctx context.Context, query string) ([]ui.PersonHit, error) {
+	people, err := s.client.SearchPeople(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	hits := make([]ui.PersonHit, 0, len(people))
+	for _, person := range people {
+		hits = append(hits, ui.PersonHit{
+			ID:         person.ID,
+			Name:       person.Name,
+			Context:    person.Context,
+			ThreadType: person.ThreadType,
+		})
+	}
+	return hits, nil
+}
+
+func (s searchAdapter) OpenPerson(ctx context.Context, person ui.PersonHit) (int64, error) {
+	thread, err := s.client.OpenPerson(ctx, s.store, meta.Person{
+		ID:         person.ID,
+		Name:       person.Name,
+		Context:    person.Context,
+		ThreadType: person.ThreadType,
+	})
+	if err != nil {
+		return 0, err
+	}
+	return thread.ID, nil
+}
+
 func run() error {
 	dataDirFlag := flag.String("data-dir", "", "directory for session and database files")
 	verbose := flag.Bool("verbose", false, "enable trace-level protocol logs in the log file")
@@ -151,6 +186,7 @@ func run() error {
 		senderAdapter{client: client},
 		historyAdapter{client: client, store: db},
 		unlockAdapter{client: client},
+		searchAdapter{client: client, store: db},
 		ui.Config{
 			PrefillPIN: *pinFlag,
 			OnReady: func() {
