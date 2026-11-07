@@ -94,7 +94,7 @@ func (m Model) helpLine() string {
 	case focusList:
 		return "j/k move · enter open · / filter · s people · tab pane · i compose · ? help · q quit"
 	case focusMessages:
-		return "j/k scroll · [/] media · o open · i compose · h back · tab pane · ? help · q quit"
+		return "j/k scroll · n/p media · o open · i compose · h back · tab pane · ? help · q quit"
 	default:
 		return "enter send · esc back · tab pane · ? help"
 	}
@@ -115,7 +115,7 @@ Navigation
   esc          back to inbox
   /            filter inbox
   s            search people
-  [ ]          previous / next media
+  n p          next / previous media (▸ marks focus)
   o enter      open focused media outside the TUI
   ?            toggle this help
   q            quit

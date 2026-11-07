@@ -412,7 +412,8 @@ func (m Model) updateMain(msg tea.Msg) (Model, tea.Cmd) {
 				return m, textinput.Blink
 			}
 		case "/":
-			if m.focus == focusList {
+			if m.focus != focusComposer {
+				m.setFocus(focusList)
 				return m.updateList(msg)
 			}
 		}
@@ -463,13 +464,15 @@ func (m Model) updateMessages(msg tea.Msg) (Model, tea.Cmd) {
 		case "ctrl+u":
 			m.viewport.HalfViewUp()
 			return m, nil
-		case "[", "{":
-			m.cycleMediaFocus(-1)
-			m.refreshViewport()
-			return m, nil
-		case "]", "}":
+		case "n", "]", "}":
 			m.cycleMediaFocus(1)
 			m.refreshViewport()
+			m.scrollToMediaFocus()
+			return m, nil
+		case "p", "[", "{":
+			m.cycleMediaFocus(-1)
+			m.refreshViewport()
+			m.scrollToMediaFocus()
 			return m, nil
 		case "o", "enter":
 			return m, m.openFocusedMedia()
@@ -518,6 +521,35 @@ func (m *Model) refreshViewport() {
 	m.viewport.SetContent(renderMessages(m.messages, m.rightWidth, selfID, m.mediaFocusID))
 }
 
+func (m *Model) scrollToMediaFocus() {
+	if m.mediaFocusID == "" || m.viewport.Height <= 0 {
+		return
+	}
+	content := renderMessages(m.messages, m.rightWidth, m.selfAccountID(), m.mediaFocusID)
+	target := -1
+	for i, line := range strings.Split(content, "\n") {
+		if strings.Contains(line, "▸") {
+			target = i
+			break
+		}
+	}
+	if target < 0 {
+		return
+	}
+	offset := target - m.viewport.Height/2
+	if offset < 0 {
+		offset = 0
+	}
+	m.viewport.SetYOffset(offset)
+}
+
+func (m Model) selfAccountID() int64 {
+	if m.sender == nil {
+		return 0
+	}
+	return m.sender.AccountID()
+}
+
 func (m *Model) mediaMessages() []store.Message {
 	out := make([]store.Message, 0)
 	for _, msg := range m.messages {
@@ -561,7 +593,7 @@ func (m *Model) cycleMediaFocus(delta int) {
 		idx += len(media)
 	}
 	m.mediaFocusID = media[idx].ID
-	m.status = mediaPlaceholder(media[idx], true)
+	m.status = fmt.Sprintf("media %d/%d · o open · %s", idx+1, len(media), mediaPlaceholder(media[idx], false))
 }
 
 func (m Model) openFocusedMedia() tea.Cmd {

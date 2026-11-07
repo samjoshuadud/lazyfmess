@@ -90,7 +90,7 @@ Controls follow common lazy-style TUI navigation:
 - `h`/`l` move between panes
 - `/` filters the inbox
 - `s` searches Messenger people and opens a chat
-- `[` / `]` moves between image and video placeholders
+- `n` / `p` moves to the next or previous image or video (`▸` marks focus)
 - `o` or Enter opens focused media in the system viewer
 - `?` shows key help
 - `q` quits (Esc goes back a pane)
