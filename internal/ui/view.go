@@ -5,8 +5,6 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-
-	"lazyfmess/internal/store"
 )
 
 func (m Model) View() string {
@@ -184,61 +182,4 @@ func truncate(s string, width int) string {
 		return string(runes[:width])
 	}
 	return string(runes[:width-1]) + "…"
-}
-
-func renderMessages(messages []store.Message, width int) string {
-	if len(messages) == 0 {
-		return statusStyle.Render("No messages yet")
-	}
-	var b strings.Builder
-	for _, msg := range messages {
-		ts := msg.Timestamp.Local().Format("15:04")
-		who := msg.SenderName
-		if who == "" {
-			who = fmt.Sprintf("%d", msg.SenderID)
-		}
-		prefix := fmt.Sprintf("%s %s  ", ts, who)
-		body := msg.Text
-		if msg.Pending {
-			body += " …"
-		}
-		if msg.Error != "" {
-			body += " [" + msg.Error + "]"
-		}
-		lineWidth := width - 2
-		if lineWidth < 10 {
-			lineWidth = 10
-		}
-		wrapped := wrapText(prefix, body, lineWidth)
-		b.WriteString(wrapped)
-		b.WriteByte('\n')
-	}
-	return b.String()
-}
-
-func wrapText(prefix, body string, width int) string {
-	avail := width - lipgloss.Width(prefix)
-	if avail < 8 {
-		return truncate(prefix+body, width)
-	}
-	runes := []rune(body)
-	if len(runes) == 0 {
-		return strings.TrimRight(prefix, " ")
-	}
-	var lines []string
-	for len(runes) > 0 {
-		n := avail
-		if n > len(runes) {
-			n = len(runes)
-		}
-		chunk := string(runes[:n])
-		if len(lines) == 0 {
-			lines = append(lines, prefix+chunk)
-		} else {
-			pad := strings.Repeat(" ", lipgloss.Width(prefix))
-			lines = append(lines, pad+chunk)
-		}
-		runes = runes[n:]
-	}
-	return strings.Join(lines, "\n")
 }

@@ -486,7 +486,11 @@ func (m *Model) applyFocus() {
 }
 
 func (m *Model) refreshViewport() {
-	m.viewport.SetContent(renderMessages(m.messages, m.rightWidth))
+	selfID := int64(0)
+	if m.sender != nil {
+		selfID = m.sender.AccountID()
+	}
+	m.viewport.SetContent(renderMessages(m.messages, m.rightWidth, selfID))
 }
 
 func (m Model) loadThreads() tea.Msg {

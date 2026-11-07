@@ -51,9 +51,18 @@ func TestModelLoadsThreadsAndMessages(t *testing.T) {
 	if len(m.list.Items()) != 1 {
 		t.Fatalf("thread items: got %d", len(m.list.Items()))
 	}
-	rendered := renderMessages([]store.Message{{ID: "m7", SenderID: 1, SenderName: "Dana", Text: "ping", Timestamp: now}}, 40)
+	rendered := renderMessages([]store.Message{
+		{ID: "m7", SenderID: 2, SenderName: "Dana", Text: "ping", Timestamp: now},
+		{ID: "m8", SenderID: 1, SenderName: "Pat", Text: "pong", Timestamp: now.Add(time.Minute)},
+	}, 40, 1)
 	if !strings.Contains(rendered, "ping") || !strings.Contains(rendered, "Dana") {
-		t.Fatalf("renderMessages missing text: %q", rendered)
+		t.Fatalf("renderMessages missing peer text: %q", rendered)
+	}
+	if !strings.Contains(rendered, "pong") || !strings.Contains(rendered, "you") {
+		t.Fatalf("renderMessages missing self label: %q", rendered)
+	}
+	if strings.Contains(rendered, "Pat") {
+		t.Fatalf("self message should use you, not contact name: %q", rendered)
 	}
 
 	model, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})

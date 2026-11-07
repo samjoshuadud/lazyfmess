@@ -55,6 +55,24 @@ var (
 			Padding(1, 2)
 
 	focusMark = lipgloss.NewStyle().Foreground(accent).Bold(true)
+
+	timeStyle = lipgloss.NewStyle().Foreground(muted)
+
+	selfNameStyle = lipgloss.NewStyle().
+			Foreground(accent).
+			Bold(true)
+
+	otherNameStyle = lipgloss.NewStyle().
+			Foreground(text).
+			Bold(true)
+
+	selfBodyStyle = lipgloss.NewStyle().Foreground(text)
+
+	otherBodyStyle = lipgloss.NewStyle().Foreground(text)
+
+	pendingBodyStyle = lipgloss.NewStyle().Foreground(muted)
+
+	errorBodyStyle = lipgloss.NewStyle().Foreground(danger)
 )
 
 func newThreadList() list.Model {
