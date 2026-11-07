@@ -4,10 +4,14 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	"fmesstui/internal/meta"
 	"fmesstui/internal/session"
@@ -40,6 +44,7 @@ func (s senderAdapter) SendText(ctx context.Context, thread store.Thread, text s
 
 func run() error {
 	dataDirFlag := flag.String("data-dir", "", "directory for session and database files")
+	verbose := flag.Bool("verbose", false, "enable trace-level protocol logs in the log file")
 	flag.Parse()
 
 	dir, err := resolveDataDir(*dataDirFlag)
@@ -49,6 +54,12 @@ func run() error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create data directory: %w", err)
 	}
+
+	logCloser, logWriter, err := setupLogging(dir, *verbose)
+	if err != nil {
+		return err
+	}
+	defer logCloser.Close()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -65,7 +76,10 @@ func run() error {
 	defer db.Close()
 
 	var app *ui.App
-	client, err := meta.New(cookies, dir, os.Stderr, func(evtCtx context.Context, evt meta.Event) {
+	client, err := meta.New(cookies, dir, logWriter, func(evtCtx context.Context, evt meta.Event) {
+		if evt.Err != nil && app != nil {
+			app.Toast(evt.Err.Error())
+		}
 		if evt.Table == nil {
 			return
 		}
@@ -89,6 +103,21 @@ func run() error {
 	}
 	app = ui.NewApp(ctx, db, senderAdapter{client: client})
 	return app.Run()
+}
+
+func setupLogging(dir string, verbose bool) (io.Closer, io.Writer, error) {
+	f, err := os.OpenFile(filepath.Join(dir, "fmesstui.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open log file: %w", err)
+	}
+	var w io.Writer = f
+	level := zerolog.DebugLevel
+	if verbose {
+		level = zerolog.TraceLevel
+	}
+	zerolog.SetGlobalLevel(level)
+	log.Logger = zerolog.New(w).With().Timestamp().Logger()
+	return f, w, nil
 }
 
 func resolveDataDir(override string) (string, error) {
