@@ -11,7 +11,9 @@ fmesstui is not affiliated with, endorsed by, or sponsored by Meta Platforms, In
 
 ## Cookie file
 
-Place `cookies.json` in the data directory:
+Place `cookies.json` in the data directory. Either format works.
+
+Object form:
 
 ```json
 {
@@ -25,6 +27,18 @@ Place `cookies.json` in the data directory:
 ```
 
 `platform` may also be `facebook`, `facebook-tor`, `messenger-lite`, or `messenger-lite-android`.
+
+Array form from a browser cookie export:
+
+```json
+[
+  {"name": "xs", "value": "...", "domain": ".messenger.com"},
+  {"name": "c_user", "value": "...", "domain": ".messenger.com"},
+  {"name": "datr", "value": "...", "domain": ".messenger.com"}
+]
+```
+
+The array form picks `messenger` or `facebook` from the cookie domain.
 
 ## Data directory
 

@@ -72,6 +72,27 @@ func TestLoadCookies(t *testing.T) {
 			}`,
 			wantErr: true,
 		},
+		{
+			name: "browser cookie array",
+			content: `[
+				{"name":"xs","value":"session-token","domain":".messenger.com"},
+				{"name":"c_user","value":"1234567890","domain":".messenger.com"},
+				{"name":"datr","value":"device-token","domain":".messenger.com"}
+			]`,
+		},
+		{
+			name: "browser cookie array facebook domain",
+			content: `[
+				{"name":"xs","value":"session-token","domain":".facebook.com"},
+				{"name":"c_user","value":"1234567890","domain":".facebook.com"},
+				{"name":"datr","value":"device-token","domain":".facebook.com"}
+			]`,
+		},
+		{
+			name:    "empty browser cookie array",
+			content: `[]`,
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -94,6 +115,12 @@ func TestLoadCookies(t *testing.T) {
 			}
 			if got.Platform == "" || got.Values["xs"] == "" {
 				t.Fatal("expected platform and session cookie")
+			}
+			if tt.name == "browser cookie array facebook domain" && got.Platform != "facebook" {
+				t.Fatalf("platform: got %q want facebook", got.Platform)
+			}
+			if tt.name == "browser cookie array" && got.Platform != "messenger" {
+				t.Fatalf("platform: got %q want messenger", got.Platform)
 			}
 		})
 	}
