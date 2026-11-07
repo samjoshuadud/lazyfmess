@@ -43,6 +43,8 @@ type Client struct {
 	newDevice     bool
 	historyMu     sync.Mutex
 	historyDevice *securehistory.Device
+	mediaMu       sync.Mutex
+	tempMedia     []string
 }
 
 func New(sess *session.Cookies, dataDir string, logWriter io.Writer, handler EventHandler) (*Client, error) {
@@ -112,6 +114,7 @@ func (c *Client) Disconnect() {
 	if c.devices != nil {
 		_ = c.devices.Close()
 	}
+	c.cleanupTempMedia()
 }
 
 func (c *Client) AccountName() string {

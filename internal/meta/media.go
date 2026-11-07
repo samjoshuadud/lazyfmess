@@ -96,63 +96,120 @@ func mediaKind(attType table.AttachmentType) string {
 }
 
 func (c *Client) OpenMedia(ctx context.Context, msg store.Message) error {
+	if c != nil {
+		c.purgeLegacyMediaCache()
+	}
 	if msg.MediaURL == "" || msg.MediaKind == "" {
 		return fmt.Errorf("open media: message has no media")
 	}
-	path, err := c.downloadMedia(ctx, msg)
+	path, err := downloadMediaTemp(ctx, msg)
 	if err != nil {
 		return err
 	}
 	if err := openLocalFile(path); err != nil {
+		_ = os.Remove(path)
 		return fmt.Errorf("open media: %w", err)
 	}
+	c.trackTempMedia(path)
+	go c.removeTempMediaWhenIdle(path)
 	return nil
 }
 
-func (c *Client) downloadMedia(ctx context.Context, msg store.Message) (string, error) {
-	dir := filepath.Join(c.dataDir, "media-cache")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", fmt.Errorf("create media cache: %w", err)
-	}
+func downloadMediaTemp(ctx context.Context, msg store.Message) (string, error) {
 	name := sanitizeMediaName(msg.MediaName, msg.MediaKind, msg.MediaMime)
-	path := filepath.Join(dir, msg.ID+"-"+name)
-	if info, err := os.Stat(path); err == nil && info.Size() > 0 {
-		return path, nil
+	f, err := os.CreateTemp("", "lazyfmess-*-"+name)
+	if err != nil {
+		return "", fmt.Errorf("create temp media: %w", err)
 	}
-
+	path := f.Name()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, msg.MediaURL, nil)
 	if err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
 		return "", fmt.Errorf("prepare media request: %w", err)
 	}
 	addMediaHeaders(req.Header, msg.MediaMime)
 	client := &http.Client{Timeout: 2 * time.Minute}
 	resp, err := client.Do(req)
 	if err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
 		return "", fmt.Errorf("download media: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		_ = f.Close()
+		_ = os.Remove(path)
 		return "", fmt.Errorf("download media: http %d", resp.StatusCode)
-	}
-	tmp := path + ".part"
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
-	if err != nil {
-		return "", fmt.Errorf("create media file: %w", err)
 	}
 	if _, err := io.Copy(f, resp.Body); err != nil {
 		_ = f.Close()
-		_ = os.Remove(tmp)
+		_ = os.Remove(path)
 		return "", fmt.Errorf("write media file: %w", err)
 	}
 	if err := f.Close(); err != nil {
-		_ = os.Remove(tmp)
+		_ = os.Remove(path)
 		return "", fmt.Errorf("close media file: %w", err)
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return "", fmt.Errorf("finalize media file: %w", err)
-	}
 	return path, nil
+}
+
+func (c *Client) trackTempMedia(path string) {
+	if c == nil || path == "" {
+		return
+	}
+	c.mediaMu.Lock()
+	c.tempMedia = append(c.tempMedia, path)
+	c.mediaMu.Unlock()
+}
+
+func (c *Client) untrackTempMedia(path string) {
+	if c == nil || path == "" {
+		return
+	}
+	c.mediaMu.Lock()
+	out := c.tempMedia[:0]
+	for _, p := range c.tempMedia {
+		if p != path {
+			out = append(out, p)
+		}
+	}
+	c.tempMedia = out
+	c.mediaMu.Unlock()
+}
+
+func (c *Client) removeTempMediaWhenIdle(path string) {
+	deadline := time.Now().Add(10 * time.Minute)
+	for time.Now().Before(deadline) {
+		time.Sleep(5 * time.Second)
+		if err := os.Remove(path); err == nil || os.IsNotExist(err) {
+			c.untrackTempMedia(path)
+			return
+		}
+	}
+	_ = os.Remove(path)
+	c.untrackTempMedia(path)
+}
+
+func (c *Client) cleanupTempMedia() {
+	if c == nil {
+		return
+	}
+	c.mediaMu.Lock()
+	paths := append([]string(nil), c.tempMedia...)
+	c.tempMedia = nil
+	c.mediaMu.Unlock()
+	for _, path := range paths {
+		_ = os.Remove(path)
+	}
+	c.purgeLegacyMediaCache()
+}
+
+func (c *Client) purgeLegacyMediaCache() {
+	if c == nil || c.dataDir == "" {
+		return
+	}
+	_ = os.RemoveAll(filepath.Join(c.dataDir, "media-cache"))
 }
 
 func addMediaHeaders(hdr http.Header, mime string) {

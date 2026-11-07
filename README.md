@@ -95,7 +95,7 @@ Controls follow common lazy-style TUI navigation:
 - `?` shows key help
 - `q` quits (Esc goes back a pane)
 
-Images and videos stay as placeholders in chat. Opening them downloads to a local cache under the data directory and launches the desktop opener.
+Images and videos stay as placeholders in chat. Opening them downloads to a temporary file, launches the desktop opener, then deletes the file once the viewer releases it or when lazyfmess exits.
 
 ## License
 
