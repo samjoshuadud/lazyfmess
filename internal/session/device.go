@@ -27,12 +27,12 @@ func OpenDeviceStore(ctx context.Context, dataDir string) (*sqlstore.Container, 
 }
 
 func LoadOrCreateDevice(ctx context.Context, container *sqlstore.Container) (*store.Device, bool, error) {
-	device, err := container.GetFirstDevice(ctx)
+	devices, err := container.GetAllDevices(ctx)
 	if err != nil {
-		return nil, false, fmt.Errorf("get device: %w", err)
+		return nil, false, fmt.Errorf("get devices: %w", err)
 	}
-	if device != nil {
-		return device, false, nil
+	if len(devices) > 0 && devices[0].ID != nil {
+		return devices[0], false, nil
 	}
 	return container.NewDevice(), true, nil
 }

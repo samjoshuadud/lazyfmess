@@ -157,12 +157,19 @@ func (c *Client) setupE2EE(ctx context.Context) error {
 	c.newDevice = isNew
 	c.mx.SetDevice(device)
 	if isNew {
-		if err := c.mx.RegisterE2EE(ctx, c.AccountID()); err != nil {
+		fbid := c.AccountID()
+		if fbid == 0 {
+			return fmt.Errorf("register e2ee: account id is zero")
+		}
+		if err := c.mx.RegisterE2EE(ctx, fbid); err != nil {
 			return fmt.Errorf("register e2ee: %w", err)
 		}
 		if err := device.Save(ctx); err != nil {
 			return fmt.Errorf("save e2ee device: %w", err)
 		}
+	}
+	if device.ID == nil {
+		return fmt.Errorf("e2ee device jid is missing")
 	}
 	e2ee, err := c.mx.PrepareE2EEClient()
 	if err != nil {
