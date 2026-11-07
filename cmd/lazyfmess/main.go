@@ -8,8 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"regexp"
-	"strings"
 	"syscall"
 
 	"github.com/rs/zerolog"
@@ -42,8 +40,6 @@ func (signalLogBridge) Error(caller, message string) {
 
 func (signalLogBridge) Configure(string) {}
 
-var pinPattern = regexp.MustCompile(`^[0-9]{6}$`)
-
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "lazyfmess: %v\n", err)
@@ -74,6 +70,18 @@ type historyAdapter struct {
 
 func (h historyAdapter) LoadHistory(ctx context.Context, thread store.Thread) error {
 	return h.client.SyncThreadHistory(ctx, h.store, thread)
+}
+
+type unlockAdapter struct {
+	client *meta.Client
+}
+
+func (u unlockAdapter) NeedsPIN(ctx context.Context) (bool, error) {
+	return u.client.NeedsHistoryPIN(ctx)
+}
+
+func (u unlockAdapter) Unlock(ctx context.Context, pin string) error {
+	return u.client.UnlockHistory(ctx, pin)
 }
 
 func run() error {
@@ -136,40 +144,21 @@ func run() error {
 	if err := meta.ApplyTable(ctx, db, client.InitialTable()); err != nil {
 		return fmt.Errorf("sync initial table: %w", err)
 	}
-	if err := unlockHistory(ctx, client, *pinFlag); err != nil {
-		return err
-	}
 
-	app = ui.NewApp(ctx, db, senderAdapter{client: client}, historyAdapter{client: client, store: db})
-	go syncHistoryBackground(ctx, client, db, app)
+	app = ui.NewApp(
+		ctx,
+		db,
+		senderAdapter{client: client},
+		historyAdapter{client: client, store: db},
+		unlockAdapter{client: client},
+		ui.Config{
+			PrefillPIN: *pinFlag,
+			OnReady: func() {
+				go syncHistoryBackground(ctx, client, db, app)
+			},
+		},
+	)
 	return app.Run()
-}
-
-func unlockHistory(ctx context.Context, client *meta.Client, pinFlag string) error {
-	needs, err := client.NeedsHistoryPIN(ctx)
-	if err != nil {
-		return fmt.Errorf("check history backup: %w", err)
-	}
-	if !needs {
-		return nil
-	}
-	pin := strings.TrimSpace(pinFlag)
-	if pin == "" {
-		pin, err = ui.PromptPIN()
-		if err != nil {
-			return err
-		}
-	}
-	if pin == "" {
-		return nil
-	}
-	if !pinPattern.MatchString(pin) {
-		return fmt.Errorf("secure storage pin must be exactly six digits")
-	}
-	if err := client.UnlockHistory(ctx, pin); err != nil {
-		return fmt.Errorf("unlock encrypted history: %w", err)
-	}
-	return nil
 }
 
 func syncHistoryBackground(ctx context.Context, client *meta.Client, db *store.Store, app *ui.App) {

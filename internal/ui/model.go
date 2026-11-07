@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -18,6 +19,7 @@ type focusPane int
 
 const (
 	focusList focusPane = iota
+	focusMessages
 	focusComposer
 )
 
@@ -33,6 +35,16 @@ type Sender interface {
 
 type HistoryLoader interface {
 	LoadHistory(ctx context.Context, thread store.Thread) error
+}
+
+type HistoryUnlocker interface {
+	NeedsPIN(ctx context.Context) (bool, error)
+	Unlock(ctx context.Context, pin string) error
+}
+
+type Config struct {
+	PrefillPIN string
+	OnReady    func()
 }
 
 type threadItem struct {
@@ -52,12 +64,19 @@ type Model struct {
 	store      *store.Store
 	sender     Sender
 	history    HistoryLoader
+	unlocker   HistoryUnlocker
+	onReady    func()
+	prefillPIN string
 	ctx        context.Context
 	list       list.Model
 	viewport   viewport.Model
 	composer   textarea.Model
+	pinInput   textinput.Model
 	focus      focusPane
 	ready      bool
+	showPIN    bool
+	showHelp   bool
+	pinErr     string
 	selectedID int64
 	status     string
 	toast      string
@@ -73,24 +92,60 @@ type historyFinishedMsg struct {
 	err      error
 }
 
-func New(ctx context.Context, s *store.Store, sender Sender, history HistoryLoader) Model {
+type bootMsg struct {
+	askPIN bool
+	err    error
+}
+
+func New(ctx context.Context, s *store.Store, sender Sender, history HistoryLoader, unlocker HistoryUnlocker, cfg Config) Model {
 	composer := newComposer()
-	composer.Focus()
+	composer.Blur()
 	return Model{
-		store:    s,
-		sender:   sender,
-		history:  history,
-		ctx:      ctx,
-		list:     newThreadList(),
-		viewport: viewport.New(1, 1),
-		composer: composer,
-		focus:    focusComposer,
-		status:   "loading",
+		store:      s,
+		sender:     sender,
+		history:    history,
+		unlocker:   unlocker,
+		onReady:    cfg.OnReady,
+		prefillPIN: strings.TrimSpace(cfg.PrefillPIN),
+		ctx:        ctx,
+		list:       newThreadList(),
+		viewport:   viewport.New(1, 1),
+		composer:   composer,
+		pinInput:   newPINInput(),
+		focus:      focusList,
+		status:     "loading",
 	}
 }
 
 func (m Model) Init() tea.Cmd {
-	return m.loadThreads
+	return tea.Batch(m.loadThreads, m.boot)
+}
+
+func (m Model) boot() tea.Msg {
+	if m.prefillPIN != "" {
+		if m.unlocker == nil {
+			return bootMsg{}
+		}
+		if err := m.unlocker.Unlock(m.ctx, m.prefillPIN); err != nil {
+			return bootMsg{err: err}
+		}
+		return bootMsg{}
+	}
+	if m.unlocker == nil {
+		return bootMsg{}
+	}
+	needs, err := m.unlocker.NeedsPIN(m.ctx)
+	if err != nil {
+		return bootMsg{err: err}
+	}
+	return bootMsg{askPIN: needs}
+}
+
+func (m *Model) kickHistorySync() {
+	if m.onReady != nil {
+		m.onReady()
+		m.onReady = nil
+	}
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -101,6 +156,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.layout()
 		m.ready = true
 		m.refreshViewport()
+		return m, nil
+	case bootMsg:
+		if msg.err != nil {
+			m.status = msg.err.Error()
+			m.toast = msg.err.Error()
+			m.kickHistorySync()
+			return m, tea.Tick(4*time.Second, func(time.Time) tea.Msg {
+				return toastExpiredMsg{message: msg.err.Error()}
+			})
+		}
+		if msg.askPIN {
+			m.openPINModal()
+			return m, pinBlink()
+		}
+		m.kickHistorySync()
+		return m, nil
+	case pinResultMsg:
+		if msg.err != nil {
+			m.pinErr = msg.err.Error()
+			m.status = msg.err.Error()
+			m.showPIN = true
+			return m, nil
+		}
+		m.closePINModal()
+		if msg.skipped {
+			m.status = "history unlock skipped"
+		} else {
+			m.status = "history unlocked"
+		}
+		m.kickHistorySync()
 		return m, nil
 	case RefreshMsg:
 		if m.selectedID != 0 {
@@ -201,16 +286,71 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 		m.status = "sent"
 		return m, tea.Batch(m.loadThreads, m.loadMessages(msg.threadID))
+	}
+
+	if m.showPIN {
+		return m.updatePIN(msg)
+	}
+	if m.showHelp {
+		return m.updateHelp(msg)
+	}
+	return m.updateMain(msg)
+}
+
+func (m Model) updateHelp(msg tea.Msg) (Model, tea.Cmd) {
+	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
+		case "?", "esc", "q", "enter", " ":
+			m.showHelp = false
+			return m, nil
 		case "ctrl+c":
 			return m, tea.Quit
-		case "esc":
+		}
+	}
+	return m, nil
+}
+
+func (m Model) updateMain(msg tea.Msg) (Model, tea.Cmd) {
+	if key, ok := msg.(tea.KeyMsg); ok {
+		if m.list.FilterState() == list.Filtering {
+			return m.updateList(msg)
+		}
+		switch key.String() {
+		case "ctrl+c":
 			return m, tea.Quit
-		case "tab":
-			m.toggleFocus()
+		case "q":
+			if m.focus != focusComposer {
+				return m, tea.Quit
+			}
+		case "?":
+			m.showHelp = true
 			return m, nil
+		case "tab":
+			m.cycleFocus(1)
+			return m, nil
+		case "shift+tab":
+			m.cycleFocus(-1)
+			return m, nil
+		case "esc":
+			if m.focus == focusComposer || m.focus == focusMessages {
+				m.setFocus(focusList)
+				return m, nil
+			}
+			return m, nil
+		case "i", "a", "c":
+			if m.focus != focusComposer && m.selectedID != 0 {
+				m.setFocus(focusComposer)
+				return m, nil
+			}
 		case "enter":
+			if m.focus == focusList {
+				if item, ok := m.list.SelectedItem().(threadItem); ok {
+					m.selectedID = item.thread.ID
+					m.setFocus(focusMessages)
+					return m, tea.Batch(m.loadMessages(item.thread.ID), m.fetchHistory(item.thread))
+				}
+			}
 			if m.focus == focusComposer && m.selectedID != 0 {
 				cmd, ok := m.queueSend()
 				if ok {
@@ -218,37 +358,111 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
+		case "l", "right":
+			if m.focus == focusList {
+				m.setFocus(focusMessages)
+				return m, nil
+			}
+			if m.focus == focusMessages && m.selectedID != 0 {
+				m.setFocus(focusComposer)
+				return m, nil
+			}
+		case "h", "left":
+			if m.focus == focusComposer {
+				m.setFocus(focusMessages)
+				return m, nil
+			}
+			if m.focus == focusMessages {
+				m.setFocus(focusList)
+				return m, nil
+			}
+		case "/":
+			if m.focus == focusList {
+				return m.updateList(msg)
+			}
 		}
 	}
-
-	var cmds []tea.Cmd
-	var cmd tea.Cmd
 	switch m.focus {
 	case focusList:
-		prevSelected := m.selectedID
-		m.list, cmd = m.list.Update(msg)
-		cmds = append(cmds, cmd)
-		if item, ok := m.list.SelectedItem().(threadItem); ok && item.thread.ID != prevSelected {
-			m.selectedID = item.thread.ID
-			cmds = append(cmds, m.loadMessages(item.thread.ID), m.fetchHistory(item.thread))
-		}
-		m.viewport, cmd = m.viewport.Update(msg)
-		cmds = append(cmds, cmd)
+		return m.updateList(msg)
+	case focusMessages:
+		return m.updateMessages(msg)
 	case focusComposer:
-		m.composer, cmd = m.composer.Update(msg)
-		cmds = append(cmds, cmd)
+		return m.updateComposer(msg)
+	default:
+		return m, nil
+	}
+}
+
+func (m Model) updateList(msg tea.Msg) (Model, tea.Cmd) {
+	prevSelected := m.selectedID
+	var cmd tea.Cmd
+	m.list, cmd = m.list.Update(msg)
+	cmds := []tea.Cmd{cmd}
+	if item, ok := m.list.SelectedItem().(threadItem); ok && item.thread.ID != prevSelected {
+		m.selectedID = item.thread.ID
+		cmds = append(cmds, m.loadMessages(item.thread.ID), m.fetchHistory(item.thread))
 	}
 	return m, tea.Batch(cmds...)
 }
 
-func (m *Model) toggleFocus() {
-	if m.focus == focusComposer {
-		m.focus = focusList
-		m.composer.Blur()
-		return
+func (m Model) updateMessages(msg tea.Msg) (Model, tea.Cmd) {
+	var cmd tea.Cmd
+	if key, ok := msg.(tea.KeyMsg); ok {
+		switch key.String() {
+		case "j", "down":
+			m.viewport.LineDown(1)
+			return m, nil
+		case "k", "up":
+			m.viewport.LineUp(1)
+			return m, nil
+		case "g", "home":
+			m.viewport.GotoTop()
+			return m, nil
+		case "G", "end":
+			m.viewport.GotoBottom()
+			return m, nil
+		case "ctrl+d":
+			m.viewport.HalfViewDown()
+			return m, nil
+		case "ctrl+u":
+			m.viewport.HalfViewUp()
+			return m, nil
+		}
 	}
-	m.focus = focusComposer
-	m.composer.Focus()
+	m.viewport, cmd = m.viewport.Update(msg)
+	return m, cmd
+}
+
+func (m Model) updateComposer(msg tea.Msg) (Model, tea.Cmd) {
+	var cmd tea.Cmd
+	m.composer, cmd = m.composer.Update(msg)
+	return m, cmd
+}
+
+func (m *Model) cycleFocus(delta int) {
+	next := int(m.focus) + delta
+	if next < 0 {
+		next = int(focusComposer)
+	}
+	if next > int(focusComposer) {
+		next = int(focusList)
+	}
+	m.setFocus(focusPane(next))
+}
+
+func (m *Model) setFocus(pane focusPane) {
+	m.focus = pane
+	m.applyFocus()
+}
+
+func (m *Model) applyFocus() {
+	switch m.focus {
+	case focusComposer:
+		m.composer.Focus()
+	default:
+		m.composer.Blur()
+	}
 }
 
 func (m *Model) refreshViewport() {
@@ -329,8 +543,8 @@ type App struct {
 	program *tea.Program
 }
 
-func NewApp(ctx context.Context, s *store.Store, sender Sender, history HistoryLoader) *App {
-	p := tea.NewProgram(New(ctx, s, sender, history), tea.WithAltScreen(), tea.WithContext(ctx))
+func NewApp(ctx context.Context, s *store.Store, sender Sender, history HistoryLoader, unlocker HistoryUnlocker, cfg Config) *App {
+	p := tea.NewProgram(New(ctx, s, sender, history, unlocker, cfg), tea.WithAltScreen(), tea.WithContext(ctx))
 	return &App{program: p}
 }
 

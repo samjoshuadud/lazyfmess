@@ -36,20 +36,17 @@ func TestModelLoadsThreadsAndMessages(t *testing.T) {
 		t.Fatalf("UpsertMessage: %v", err)
 	}
 
-	m := New(ctx, s, stubSender{id: 1}, nil)
-	msg := m.Init()()
+	m := New(ctx, s, stubSender{id: 1}, nil, nil, Config{})
+	msg := m.loadThreads()
 	model, cmd := m.Update(msg)
 	m = model.(Model)
 	for cmd != nil {
-		msg = cmd()
-		model, cmd = m.Update(msg)
-		m = model.(Model)
-		if _, ok := msg.(tea.BatchMsg); ok {
-			continue
-		}
-		if cmd == nil {
+		next := cmd()
+		if next == nil {
 			break
 		}
+		model, cmd = m.Update(next)
+		m = model.(Model)
 	}
 	if len(m.list.Items()) != 1 {
 		t.Fatalf("thread items: got %d", len(m.list.Items()))
@@ -59,7 +56,7 @@ func TestModelLoadsThreadsAndMessages(t *testing.T) {
 		t.Fatalf("renderMessages missing text: %q", rendered)
 	}
 
-	model, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	if cmd == nil {
 		t.Fatal("expected quit command")
 	}
@@ -73,7 +70,7 @@ func TestRefreshReloadsThreads(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 	defer s.Close()
-	m := New(ctx, s, stubSender{id: 1}, nil)
+	m := New(ctx, s, stubSender{id: 1}, nil, nil, Config{})
 	model, cmd := m.Update(RefreshMsg{})
 	m = model.(Model)
 	if cmd == nil {
@@ -84,5 +81,27 @@ func TestRefreshReloadsThreads(t *testing.T) {
 	m = model.(Model)
 	if m.status != "0 chats" {
 		t.Fatalf("status: %q", m.status)
+	}
+}
+
+func TestHelpToggle(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	m := New(ctx, s, stubSender{id: 1}, nil, nil, Config{})
+	m.ready = true
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	m = model.(Model)
+	if !m.showHelp {
+		t.Fatal("expected help open")
+	}
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = model.(Model)
+	if m.showHelp {
+		t.Fatal("expected help closed")
 	}
 }

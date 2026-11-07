@@ -52,9 +52,9 @@ That directory holds `cookies.json`, `messagix-state.json`, `device.db`, `messag
 
 Protocol logs go to `lazyfmess.log`. The terminal stays with the TUI. Pass `-verbose` to enable trace-level protocol logs in the file.
 
-Encrypted Messenger history uses the same six-digit secure storage PIN as the web client. On first run after connect, lazyfmess asks for that PIN when a backup exists. Pass `-pin 123456` to unlock without the prompt. The PIN is not stored; only the enrolled history device is kept in `history-device.json`.
+Encrypted Messenger history uses the same six-digit secure storage PIN as the web client. When a backup exists, lazyfmess opens an in-app PIN modal (shown as ******). Esc skips unlock. Pass `-pin 123456` to unlock without the modal. The PIN is not stored; only the enrolled history device is kept in `history-device.json`.
 
-After unlock, lazyfmess pages older inbox threads and pulls encrypted DM history in the background. Selecting a thread also requests older messages for that chat.
+After unlock, lazyfmess pages older inbox threads and pulls encrypted DM history in the background. Opening a chat also requests older messages for that thread.
 
 ## Build and run
 
@@ -81,7 +81,16 @@ For trace-level protocol logs in the file:
 go run ./cmd/lazyfmess -verbose
 ```
 
-Controls: select a thread in the left list, type in the composer, Enter sends, Esc or Ctrl+C quits.
+Controls follow common lazy-style TUI navigation:
+
+- `j`/`k` or arrows move in the inbox and scroll chat
+- `enter` opens a chat or sends from the composer
+- `i` / `a` / `c` focuses the composer
+- `tab` cycles inbox → chat → compose
+- `h`/`l` move between panes
+- `/` filters the inbox
+- `?` shows key help
+- `q` quits (Esc goes back a pane)
 
 ## License
 

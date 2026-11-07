@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -9,89 +8,107 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-type pinModel struct {
-	input textinput.Model
-	err   string
-	done  bool
-	value string
-	skip  bool
+type pinResultMsg struct {
+	err     error
+	skipped bool
 }
 
-func PromptPIN() (string, error) {
-	m := pinModel{input: newPINInput()}
-	p := tea.NewProgram(m)
-	final, err := p.Run()
-	if err != nil {
-		return "", fmt.Errorf("pin prompt: %w", err)
-	}
-	result, ok := final.(pinModel)
-	if !ok {
-		return "", fmt.Errorf("pin prompt: unexpected model")
-	}
-	if result.skip {
-		return "", nil
-	}
-	return result.value, nil
+func (m *Model) openPINModal() {
+	m.showPIN = true
+	m.pinErr = ""
+	m.pinInput = newPINInput()
+	m.composer.Blur()
 }
 
-func (m pinModel) Init() tea.Cmd {
-	return textinput.Blink
+func (m *Model) closePINModal() {
+	m.showPIN = false
+	m.pinErr = ""
+	m.pinInput.Blur()
+	m.applyFocus()
 }
 
-func (m pinModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m Model) updatePIN(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", "esc":
-			m.skip = true
-			m.done = true
+		case "ctrl+c":
 			return m, tea.Quit
+		case "esc":
+			m.closePINModal()
+			m.status = "history unlock skipped"
+			m.kickHistorySync()
+			return m, nil
 		case "enter":
-			value := strings.TrimSpace(m.input.Value())
+			value := strings.TrimSpace(m.pinInput.Value())
 			if value == "" {
-				m.skip = true
-				m.done = true
-				return m, tea.Quit
+				m.closePINModal()
+				m.status = "history unlock skipped"
+				m.kickHistorySync()
+				return m, nil
 			}
 			if len(value) != 6 {
-				m.err = "enter exactly 6 digits, or leave empty to skip"
+				m.pinErr = "enter exactly 6 digits, or leave empty to skip"
 				return m, nil
 			}
 			for _, r := range value {
 				if r < '0' || r > '9' {
-					m.err = "PIN must be digits only"
+					m.pinErr = "PIN must be digits only"
 					return m, nil
 				}
 			}
-			m.value = value
-			m.done = true
-			return m, tea.Quit
+			m.status = "unlocking history"
+			return m, m.submitPIN(value)
 		}
 	}
 	var cmd tea.Cmd
-	m.input, cmd = m.input.Update(msg)
+	m.pinInput, cmd = m.pinInput.Update(msg)
 	return m, cmd
 }
 
-func (m pinModel) View() string {
-	title := titleStyle.Render("lazyfmess")
-	hint := statusStyle.Render("Secure storage PIN. Shown as ******. Empty skips history unlock.")
-	body := m.input.View()
-	errLine := ""
-	if m.err != "" {
-		errLine = errorStatusStyle.Render(m.err)
+func (m Model) submitPIN(pin string) tea.Cmd {
+	return func() tea.Msg {
+		if m.unlocker == nil {
+			return pinResultMsg{skipped: true}
+		}
+		err := m.unlocker.Unlock(m.ctx, pin)
+		return pinResultMsg{err: err}
 	}
-	help := helpStyle.Render("enter confirm · esc skip")
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
-		"",
-		"  "+title,
-		"  "+hint,
-		"",
-		"  "+body,
-		"  "+errLine,
-		"",
-		"  "+help,
-		"",
+}
+
+func (m Model) renderPINModal() string {
+	width := 48
+	if m.width > 0 && m.width < width+4 {
+		width = m.width - 4
+	}
+	if width < 28 {
+		width = 28
+	}
+
+	title := titleStyle.Render("Secure storage PIN")
+	hint := statusStyle.Render("Encrypted history unlock. Input shows as ******.")
+	body := m.pinInput.View()
+	errLine := " "
+	if m.pinErr != "" {
+		errLine = errorStatusStyle.Render(m.pinErr)
+	}
+	help := helpStyle.Render("enter unlock · esc skip")
+
+	card := modalStyle.Width(width).Render(
+		lipgloss.JoinVertical(
+			lipgloss.Left,
+			title,
+			"",
+			hint,
+			"",
+			body,
+			errLine,
+			"",
+			help,
+		),
 	)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, card)
+}
+
+func pinBlink() tea.Cmd {
+	return textinput.Blink
 }
