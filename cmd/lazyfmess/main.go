@@ -8,20 +8,45 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"syscall"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	signallog "go.mau.fi/libsignal/logger"
 
-	"fmesstui/internal/meta"
-	"fmesstui/internal/session"
-	"fmesstui/internal/store"
-	"fmesstui/internal/ui"
+	"lazyfmess/internal/meta"
+	"lazyfmess/internal/session"
+	"lazyfmess/internal/store"
+	"lazyfmess/internal/ui"
 )
+
+type signalLogBridge struct{}
+
+func (signalLogBridge) Debug(caller, message string) {
+	log.Debug().Str("caller", caller).Msg(message)
+}
+
+func (signalLogBridge) Info(caller, message string) {
+	log.Info().Str("caller", caller).Msg(message)
+}
+
+func (signalLogBridge) Warning(caller, message string) {
+	log.Warn().Str("caller", caller).Msg(message)
+}
+
+func (signalLogBridge) Error(caller, message string) {
+	log.Error().Str("caller", caller).Msg(message)
+}
+
+func (signalLogBridge) Configure(string) {}
+
+var pinPattern = regexp.MustCompile(`^[0-9]{6}$`)
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintf(os.Stderr, "fmesstui: %v\n", err)
+		fmt.Fprintf(os.Stderr, "lazyfmess: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -42,9 +67,19 @@ func (s senderAdapter) SendText(ctx context.Context, thread store.Thread, text s
 	return ui.SendResult{MessageID: result.MessageID, Timestamp: result.Timestamp}, nil
 }
 
+type historyAdapter struct {
+	client *meta.Client
+	store  *store.Store
+}
+
+func (h historyAdapter) LoadHistory(ctx context.Context, thread store.Thread) error {
+	return h.client.SyncThreadHistory(ctx, h.store, thread)
+}
+
 func run() error {
 	dataDirFlag := flag.String("data-dir", "", "directory for session and database files")
 	verbose := flag.Bool("verbose", false, "enable trace-level protocol logs in the log file")
+	pinFlag := flag.String("pin", "", "six-digit Messenger secure storage PIN for encrypted history")
 	flag.Parse()
 
 	dir, err := resolveDataDir(*dataDirFlag)
@@ -101,12 +136,55 @@ func run() error {
 	if err := meta.ApplyTable(ctx, db, client.InitialTable()); err != nil {
 		return fmt.Errorf("sync initial table: %w", err)
 	}
-	app = ui.NewApp(ctx, db, senderAdapter{client: client})
+	if err := unlockHistory(ctx, client, *pinFlag); err != nil {
+		return err
+	}
+
+	app = ui.NewApp(ctx, db, senderAdapter{client: client}, historyAdapter{client: client, store: db})
+	go syncHistoryBackground(ctx, client, db, app)
 	return app.Run()
 }
 
+func unlockHistory(ctx context.Context, client *meta.Client, pinFlag string) error {
+	needs, err := client.NeedsHistoryPIN(ctx)
+	if err != nil {
+		return fmt.Errorf("check history backup: %w", err)
+	}
+	if !needs {
+		return nil
+	}
+	pin := strings.TrimSpace(pinFlag)
+	if pin == "" {
+		pin, err = ui.PromptPIN()
+		if err != nil {
+			return err
+		}
+	}
+	if pin == "" {
+		return nil
+	}
+	if !pinPattern.MatchString(pin) {
+		return fmt.Errorf("secure storage pin must be exactly six digits")
+	}
+	if err := client.UnlockHistory(ctx, pin); err != nil {
+		return fmt.Errorf("unlock encrypted history: %w", err)
+	}
+	return nil
+}
+
+func syncHistoryBackground(ctx context.Context, client *meta.Client, db *store.Store, app *ui.App) {
+	if err := client.SyncInboxThreads(ctx, db); err == nil && app != nil {
+		app.Notify()
+	}
+	if client.HasHistoryDevice() {
+		if err := client.SyncAllEncryptedHistory(ctx, db); err == nil && app != nil {
+			app.Notify()
+		}
+	}
+}
+
 func setupLogging(dir string, verbose bool) (io.Closer, io.Writer, error) {
-	f, err := os.OpenFile(filepath.Join(dir, "fmesstui.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(filepath.Join(dir, "lazyfmess.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open log file: %w", err)
 	}
@@ -117,6 +195,8 @@ func setupLogging(dir string, verbose bool) (io.Closer, io.Writer, error) {
 	}
 	zerolog.SetGlobalLevel(level)
 	log.Logger = zerolog.New(w).With().Timestamp().Logger()
+	var signalLogger signallog.Loggable = signalLogBridge{}
+	signallog.Setup(&signalLogger)
 	return f, w, nil
 }
 
@@ -128,5 +208,5 @@ func resolveDataDir(override string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve user config directory: %w", err)
 	}
-	return filepath.Join(base, "fmesstui"), nil
+	return filepath.Join(base, "lazyfmess"), nil
 }

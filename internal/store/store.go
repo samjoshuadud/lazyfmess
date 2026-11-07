@@ -81,6 +81,11 @@ CREATE TABLE IF NOT EXISTS contacts (
 	id INTEGER PRIMARY KEY,
 	name TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS hybrid_threads (
+	fb_key INTEGER PRIMARY KEY,
+	jid INTEGER NOT NULL,
+	thread_type INTEGER NOT NULL DEFAULT 0
+);
 CREATE INDEX IF NOT EXISTS messages_thread_ts ON messages(thread_id, timestamp_ms);
 `
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
@@ -128,6 +133,57 @@ func (s *Store) ContactName(ctx context.Context, id int64) (string, error) {
 		return "", fmt.Errorf("contact name: %w", err)
 	}
 	return name, nil
+}
+
+func (s *Store) PutHybridThread(ctx context.Context, fbKey, jid, threadType int64) error {
+	if fbKey == 0 || jid == 0 {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO hybrid_threads (fb_key, jid, thread_type)
+VALUES (?, ?, ?)
+ON CONFLICT(fb_key) DO UPDATE SET
+	jid=excluded.jid,
+	thread_type=CASE WHEN excluded.thread_type = 0 THEN hybrid_threads.thread_type ELSE excluded.thread_type END
+`, fbKey, jid, threadType)
+	if err != nil {
+		return fmt.Errorf("put hybrid thread: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) HybridThreadJID(ctx context.Context, fbKey int64) (int64, error) {
+	var jid int64
+	err := s.db.QueryRowContext(ctx, `SELECT jid FROM hybrid_threads WHERE fb_key = ?`, fbKey).Scan(&jid)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("hybrid thread jid: %w", err)
+	}
+	return jid, nil
+}
+
+func (s *Store) OldestMessage(ctx context.Context, threadID int64) (Message, error) {
+	var m Message
+	var ms int64
+	var pending int
+	err := s.db.QueryRowContext(ctx, `
+SELECT id, thread_id, sender_id, text, timestamp_ms, pending, error
+FROM messages
+WHERE thread_id = ?
+ORDER BY timestamp_ms ASC, id ASC
+LIMIT 1
+`, threadID).Scan(&m.ID, &m.ThreadID, &m.SenderID, &m.Text, &ms, &pending, &m.Error)
+	if err == sql.ErrNoRows {
+		return Message{}, sql.ErrNoRows
+	}
+	if err != nil {
+		return Message{}, fmt.Errorf("oldest message: %w", err)
+	}
+	m.Timestamp = time.UnixMilli(ms)
+	m.Pending = pending != 0
+	return m, nil
 }
 
 func (s *Store) UpsertThread(ctx context.Context, t Thread) error {

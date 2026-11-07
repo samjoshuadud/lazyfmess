@@ -1,6 +1,6 @@
 package ui
 
-import "fmesstui/internal/store"
+import "lazyfmess/internal/store"
 
 type threadsLoadedMsg struct {
 	threads []store.Thread

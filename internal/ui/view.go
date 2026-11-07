@@ -4,132 +4,175 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
 
-	"fmesstui/internal/store"
+	"lazyfmess/internal/store"
 )
 
 func (m Model) View() string {
 	if !m.ready {
-		return appStyle.Render("loading")
+		return statusStyle.Render("loading")
 	}
-	header := headerStyle.Width(m.width).Render(
-		lipgloss.JoinHorizontal(
-			lipgloss.Left,
-			eyebrowStyle.Render("FMESSTUI"),
-			"  ",
-			lipgloss.NewStyle().Foreground(muted).Render("MESSAGES"),
-		),
-	)
-	leftWidth := m.width / 3
-	if leftWidth < 20 {
-		leftWidth = 20
-	}
-	if leftWidth > m.width-20 {
-		leftWidth = m.width / 2
-	}
-	rightWidth := m.width - leftWidth
-	left := sidebarStyle.Width(leftWidth).Height(m.height - 1).Render(m.list.View())
-	right := m.renderConversation(rightWidth, m.height-1)
-	return appStyle.Width(m.width).Height(m.height).Render(
-		lipgloss.JoinVertical(lipgloss.Left, header, lipgloss.JoinHorizontal(lipgloss.Top, left, right)),
-	)
+
+	left := sidebarStyle.
+		Width(m.leftWidth).
+		Height(m.height).
+		Render(m.list.View())
+
+	right := lipgloss.NewStyle().
+		Width(m.rightWidth).
+		Height(m.height).
+		Render(m.renderConversation())
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 }
 
-func (m Model) renderConversation(width, height int) string {
-	title := "NO THREAD SELECTED"
+func (m Model) renderConversation() string {
+	title := "No chat selected"
 	if item, ok := m.list.SelectedItem().(threadItem); ok {
 		title = item.thread.Title
 		if title == "" {
-			title = fmt.Sprintf("THREAD %d", item.thread.ID)
+			title = fmt.Sprintf("Chat %d", item.thread.ID)
 		}
 	}
-	header := conversationHeaderStyle.Width(width).Render(
-		lipgloss.JoinHorizontal(
-			lipgloss.Left,
-			lipgloss.NewStyle().Foreground(cyan).Render("●"),
-			"  ",
-			title,
-		),
-	)
-	status := m.status
-	if strings.Contains(status, "error") || strings.Contains(status, "failed") {
-		status = errorStyle.Render(status)
-	} else if status == "sending" || status == "sent" {
-		status = statusActiveStyle.Render(status)
-	} else {
-		status = statusStyle.Render(status)
-	}
+
+	header := panelTitleStyle.Width(m.rightWidth).Render(truncate(title, m.rightWidth-2))
 	composer := lipgloss.NewStyle().
+		Width(m.rightWidth).
 		Border(lipgloss.NormalBorder(), true, false, false, false).
 		BorderForeground(line).
-		PaddingTop(1).
+		Padding(0, 1).
 		Render(m.composer.View())
-	footer := status
+
+	statusText := m.status
 	if m.toast != "" {
-		toastWidth := lipgloss.Width(m.toast) + 6
-		if toastWidth > width-2 {
-			toastWidth = width - 2
-		}
-		if toastWidth < 24 && width >= 24 {
-			toastWidth = 24
-		}
-		footer = lipgloss.JoinVertical(lipgloss.Right, toastStyle.Width(toastWidth).Render(m.toast), status)
+		statusText = m.toast
 	}
-	body := lipgloss.JoinVertical(lipgloss.Left, m.viewport.View(), composer, footer)
-	return conversationStyle.Width(width).Height(height).Render(
-		lipgloss.JoinVertical(lipgloss.Left, header, body),
-	)
+	status := statusStyle.Width(m.rightWidth).Render(truncate(statusText, m.rightWidth-2))
+	if strings.Contains(strings.ToLower(statusText), "error") || strings.Contains(strings.ToLower(statusText), "fail") {
+		status = errorStatusStyle.Width(m.rightWidth).Render(truncate(statusText, m.rightWidth-2))
+	}
+
+	help := helpStyle.Width(m.rightWidth).Render("tab focus · enter send · esc quit")
+
+	parts := []string{
+		header,
+		m.viewport.View(),
+		composer,
+		status,
+		help,
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
 func (m *Model) layout() {
-	leftWidth := m.width / 3
-	if leftWidth < 20 {
-		leftWidth = 20
+	if m.width < 40 {
+		m.width = 40
 	}
-	if leftWidth > m.width-20 {
-		leftWidth = m.width / 2
+	if m.height < 10 {
+		m.height = 10
 	}
-	rightWidth := m.width - leftWidth
-	if rightWidth < 1 {
-		rightWidth = 1
+
+	m.leftWidth = m.width / 3
+	if m.leftWidth < 24 {
+		m.leftWidth = 24
 	}
-	composerHeight := 4
-	footerHeight := 1
-	if m.toast != "" {
-		footerHeight += 3
+	if m.leftWidth > 36 {
+		m.leftWidth = 36
 	}
-	listHeight := m.height - 1
-	viewHeight := m.height - 1 - composerHeight - footerHeight - 2
-	if viewHeight < 1 {
-		viewHeight = 1
+	if m.leftWidth >= m.width-20 {
+		m.leftWidth = m.width / 2
 	}
-	m.list.SetSize(leftWidth, listHeight)
-	m.viewport = viewport.New(rightWidth, viewHeight)
-	m.composer.SetWidth(rightWidth)
+	m.rightWidth = m.width - m.leftWidth
+	if m.rightWidth < 20 {
+		m.rightWidth = 20
+	}
+
+	const (
+		headerLines   = 2
+		composerLines = 3
+		statusLines   = 1
+		helpLines     = 1
+	)
+	viewHeight := m.height - headerLines - composerLines - statusLines - helpLines
+	if viewHeight < 3 {
+		viewHeight = 3
+	}
+
+	m.list.SetSize(m.leftWidth-1, m.height)
+	m.composer.SetWidth(m.rightWidth - 4)
+
+	m.viewport.Width = m.rightWidth
+	m.viewport.Height = viewHeight
 }
 
-func renderMessages(messages []store.Message) string {
+func truncate(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) <= width {
+		return s
+	}
+	if width <= 1 {
+		return string(runes[:width])
+	}
+	return string(runes[:width-1]) + "…"
+}
+
+func renderMessages(messages []store.Message, width int) string {
 	if len(messages) == 0 {
-		return "no messages"
+		return statusStyle.Render("No messages yet")
 	}
 	var b strings.Builder
 	for _, msg := range messages {
-		ts := msg.Timestamp.Local().Format("3:04PM")
+		ts := msg.Timestamp.Local().Format("15:04")
 		who := msg.SenderName
 		if who == "" {
 			who = fmt.Sprintf("%d", msg.SenderID)
 		}
-		line := fmt.Sprintf("[%s] %s: %s", ts, who, msg.Text)
+		prefix := fmt.Sprintf("%s %s  ", ts, who)
+		body := msg.Text
 		if msg.Pending {
-			line += " (pending)"
+			body += " …"
 		}
 		if msg.Error != "" {
-			line += " error=" + msg.Error
+			body += " [" + msg.Error + "]"
 		}
-		b.WriteString(line)
+		lineWidth := width - 2
+		if lineWidth < 10 {
+			lineWidth = 10
+		}
+		wrapped := wrapText(prefix, body, lineWidth)
+		b.WriteString(wrapped)
 		b.WriteByte('\n')
 	}
 	return b.String()
+}
+
+func wrapText(prefix, body string, width int) string {
+	avail := width - lipgloss.Width(prefix)
+	if avail < 8 {
+		return truncate(prefix+body, width)
+	}
+	runes := []rune(body)
+	if len(runes) == 0 {
+		return strings.TrimRight(prefix, " ")
+	}
+	var lines []string
+	for len(runes) > 0 {
+		n := avail
+		if n > len(runes) {
+			n = len(runes)
+		}
+		chunk := string(runes[:n])
+		if len(lines) == 0 {
+			lines = append(lines, prefix+chunk)
+		} else {
+			pad := strings.Repeat(" ", lipgloss.Width(prefix))
+			lines = append(lines, pad+chunk)
+		}
+		runes = runes[n:]
+	}
+	return strings.Join(lines, "\n")
 }

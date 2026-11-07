@@ -6,7 +6,7 @@ import (
 
 	"go.mau.fi/mautrix-meta/pkg/messagix/table"
 
-	"fmesstui/internal/store"
+	"lazyfmess/internal/store"
 )
 
 func ApplyTable(ctx context.Context, s *store.Store, tbl *table.LSTable) error {
@@ -14,6 +14,9 @@ func ApplyTable(ctx context.Context, s *store.Store, tbl *table.LSTable) error {
 		return nil
 	}
 	if err := applyContacts(ctx, s, tbl); err != nil {
+		return err
+	}
+	if err := applyHybridMappings(ctx, s, tbl); err != nil {
 		return err
 	}
 	for _, thread := range tbl.LSDeleteThenInsertThread {
@@ -83,16 +86,63 @@ func applyContacts(ctx context.Context, s *store.Store, tbl *table.LSTable) erro
 	return nil
 }
 
+func applyHybridMappings(ctx context.Context, s *store.Store, tbl *table.LSTable) error {
+	for _, mapping := range tbl.LSUpdateThreadAuthorityAndMappingWithOTIDFromJID {
+		if mapping == nil {
+			continue
+		}
+		if err := s.PutHybridThread(ctx, mapping.ThreadKey, mapping.ThreadJID, 0); err != nil {
+			return err
+		}
+	}
+	for _, hybrid := range tbl.LSVerifyHybridThreadExists {
+		if hybrid == nil {
+			continue
+		}
+		if err := s.PutHybridThread(ctx, hybrid.ThreadKey, hybrid.ThreadJID, int64(hybrid.ThreadType)); err != nil {
+			return err
+		}
+		title, err := s.ContactName(ctx, hybrid.ThreadJID)
+		if err != nil {
+			return err
+		}
+		if err := s.UpsertThread(ctx, store.Thread{
+			ID:         hybrid.ThreadJID,
+			Title:      title,
+			ThreadType: int64(hybrid.ThreadType),
+			UpdatedAt:  time.UnixMilli(hybrid.LastActivityTimestampMS),
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func resolveThreadKey(ctx context.Context, s *store.Store, key int64) (int64, error) {
+	jid, err := s.HybridThreadJID(ctx, key)
+	if err != nil {
+		return 0, err
+	}
+	if jid != 0 {
+		return jid, nil
+	}
+	return key, nil
+}
+
 func upsertThread(ctx context.Context, s *store.Store, thread table.ThreadInfo) error {
 	if thread == nil {
 		return nil
+	}
+	key, err := resolveThreadKey(ctx, s, thread.GetThreadKey())
+	if err != nil {
+		return err
 	}
 	title := thread.GetThreadName()
 	if title == "" {
 		title = thread.GetThreadDescription()
 	}
 	if title == "" {
-		name, err := s.ContactName(ctx, thread.GetThreadKey())
+		name, err := s.ContactName(ctx, key)
 		if err != nil {
 			return err
 		}
@@ -114,7 +164,7 @@ func upsertThread(ctx context.Context, s *store.Store, thread table.ThreadInfo) 
 		threadType = int64(thread.GetThreadType())
 	}
 	return s.UpsertThread(ctx, store.Thread{
-		ID:          thread.GetThreadKey(),
+		ID:          key,
 		Title:       title,
 		LastPreview: preview,
 		ThreadType:  threadType,
@@ -126,12 +176,16 @@ func upsertWrapped(ctx context.Context, s *store.Store, msg *table.WrappedMessag
 	if msg == nil || msg.LSInsertMessage == nil || msg.MessageId == "" {
 		return nil
 	}
-	if err := s.EnsureThread(ctx, msg.ThreadKey); err != nil {
+	key, err := resolveThreadKey(ctx, s, msg.ThreadKey)
+	if err != nil {
+		return err
+	}
+	if err := s.EnsureThread(ctx, key); err != nil {
 		return err
 	}
 	return s.UpsertMessage(ctx, store.Message{
 		ID:        msg.MessageId,
-		ThreadID:  msg.ThreadKey,
+		ThreadID:  key,
 		SenderID:  msg.SenderId,
 		Text:      msg.Text,
 		Timestamp: time.UnixMilli(msg.TimestampMs),
@@ -142,12 +196,16 @@ func upsertDeletedMessage(ctx context.Context, s *store.Store, msg *table.LSDele
 	if msg == nil || msg.MessageId == "" {
 		return nil
 	}
-	if err := s.EnsureThread(ctx, msg.ThreadKey); err != nil {
+	key, err := resolveThreadKey(ctx, s, msg.ThreadKey)
+	if err != nil {
+		return err
+	}
+	if err := s.EnsureThread(ctx, key); err != nil {
 		return err
 	}
 	return s.UpsertMessage(ctx, store.Message{
 		ID:        msg.MessageId,
-		ThreadID:  msg.ThreadKey,
+		ThreadID:  key,
 		SenderID:  msg.SenderId,
 		Text:      msg.Text,
 		Timestamp: time.UnixMilli(msg.TimestampMs),

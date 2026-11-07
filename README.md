@@ -1,8 +1,8 @@
-# fmesstui
+# lazyfmess
 
 Unofficial terminal client for Messenger.
 
-fmesstui is not affiliated with, endorsed by, or sponsored by Meta Platforms, Inc. Messenger is a trademark of Meta Platforms, Inc.
+lazyfmess is not affiliated with, endorsed by, or sponsored by Meta Platforms, Inc. Messenger is a trademark of Meta Platforms, Inc.
 
 ## Requirements
 
@@ -44,39 +44,49 @@ If connect fails with an expired or rejected session, open Messenger in the brow
 
 ## Data directory
 
-Default path: `$XDG_CONFIG_HOME/fmesstui` (`os.UserConfigDir()/fmesstui`).
+Default path: `$XDG_CONFIG_HOME/lazyfmess` (`os.UserConfigDir()/lazyfmess`).
 
-Override with `-data-dir /path/to/dir`.
+Override with `-data-dir /path/to/dir`. An older install that used `$XDG_CONFIG_HOME/fmesstui` can point `-data-dir` at that directory.
 
-That directory holds `cookies.json`, `messagix-state.json`, `device.db`, `messages.db`, and `fmesstui.log`. Do not commit those files.
+That directory holds `cookies.json`, `messagix-state.json`, `device.db`, `messages.db`, `history-device.json`, and `lazyfmess.log`. Do not commit those files.
 
-Protocol logs go to `fmesstui.log`. The terminal stays with the TUI. Pass `-verbose` to enable trace-level protocol logs in the file.
+Protocol logs go to `lazyfmess.log`. The terminal stays with the TUI. Pass `-verbose` to enable trace-level protocol logs in the file.
+
+Encrypted Messenger history uses the same six-digit secure storage PIN as the web client. On first run after connect, lazyfmess asks for that PIN when a backup exists. Pass `-pin 123456` to unlock without the prompt. The PIN is not stored; only the enrolled history device is kept in `history-device.json`.
+
+After unlock, lazyfmess pages older inbox threads and pulls encrypted DM history in the background. Selecting a thread also requests older messages for that chat.
 
 ## Build and run
 
 ```bash
 nix develop
-go run ./cmd/fmesstui
+go run ./cmd/lazyfmess
 ```
 
 Or:
 
 ```bash
-go run ./cmd/fmesstui -data-dir "$HOME/.config/fmesstui"
+go run ./cmd/lazyfmess -data-dir "$HOME/.config/lazyfmess"
+```
+
+Unlock encrypted history with a PIN:
+
+```bash
+go run ./cmd/lazyfmess -pin 123456
 ```
 
 For trace-level protocol logs in the file:
 
 ```bash
-go run ./cmd/fmesstui -verbose
+go run ./cmd/lazyfmess -verbose
 ```
 
 Controls: select a thread in the left list, type in the composer, Enter sends, Esc or Ctrl+C quits.
 
 ## License
 
-Copyright (C) 2026 fmesstui authors
+Copyright (C) 2026 lazyfmess authors
 
 Licensed under the GNU Affero General Public License, version 3 or any later version. See [LICENSE](LICENSE).
 
-fmesstui depends on [mautrix-meta](https://github.com/mautrix/meta) (`pkg/messagix`), which is licensed under the GNU AGPL, version 3. Keep its copyright and license notices intact.
+lazyfmess depends on [mautrix-meta](https://github.com/mautrix/meta) (`pkg/messagix`), which is licensed under the GNU AGPL, version 3. Keep its copyright and license notices intact.

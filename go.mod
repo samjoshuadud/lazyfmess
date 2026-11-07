@@ -1,4 +1,4 @@
-module fmesstui
+module lazyfmess
 
 go 1.27.3
 
@@ -7,8 +7,10 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/rs/zerolog v1.35.1
+	go.mau.fi/libsignal v0.2.2
 	go.mau.fi/mautrix-meta v0.2610.0
 	go.mau.fi/whatsmeow v0.0.0-20261014094007-f16f9ca30d6a
+	google.golang.org/protobuf v1.36.12
 	modernc.org/sqlite v1.61.1
 )
 
@@ -68,7 +70,6 @@ require (
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yuin/goldmark v1.8.6 // indirect
-	go.mau.fi/libsignal v0.2.2 // indirect
 	go.mau.fi/util v0.11.0 // indirect
 	go.mau.fi/zeroconfig v0.2.0 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
@@ -77,7 +78,6 @@ require (
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
-	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	maunium.net/go/mautrix v0.32.0 // indirect

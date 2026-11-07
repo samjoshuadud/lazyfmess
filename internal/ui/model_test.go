@@ -8,7 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"fmesstui/internal/store"
+	"lazyfmess/internal/store"
 )
 
 type stubSender struct {
@@ -36,19 +36,25 @@ func TestModelLoadsThreadsAndMessages(t *testing.T) {
 		t.Fatalf("UpsertMessage: %v", err)
 	}
 
-	m := New(ctx, s, stubSender{id: 1})
+	m := New(ctx, s, stubSender{id: 1}, nil)
 	msg := m.Init()()
 	model, cmd := m.Update(msg)
 	m = model.(Model)
-	if cmd != nil {
+	for cmd != nil {
 		msg = cmd()
-		model, _ = m.Update(msg)
+		model, cmd = m.Update(msg)
 		m = model.(Model)
+		if _, ok := msg.(tea.BatchMsg); ok {
+			continue
+		}
+		if cmd == nil {
+			break
+		}
 	}
 	if len(m.list.Items()) != 1 {
 		t.Fatalf("thread items: got %d", len(m.list.Items()))
 	}
-	rendered := renderMessages([]store.Message{{ID: "m7", SenderID: 1, SenderName: "Dana", Text: "ping", Timestamp: now}})
+	rendered := renderMessages([]store.Message{{ID: "m7", SenderID: 1, SenderName: "Dana", Text: "ping", Timestamp: now}}, 40)
 	if !strings.Contains(rendered, "ping") || !strings.Contains(rendered, "Dana") {
 		t.Fatalf("renderMessages missing text: %q", rendered)
 	}
@@ -67,7 +73,7 @@ func TestRefreshReloadsThreads(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 	defer s.Close()
-	m := New(ctx, s, stubSender{id: 1})
+	m := New(ctx, s, stubSender{id: 1}, nil)
 	model, cmd := m.Update(RefreshMsg{})
 	m = model.(Model)
 	if cmd == nil {
@@ -76,7 +82,7 @@ func TestRefreshReloadsThreads(t *testing.T) {
 	msg := cmd()
 	model, _ = m.Update(msg)
 	m = model.(Model)
-	if m.status != "0 threads" {
+	if m.status != "0 chats" {
 		t.Fatalf("status: %q", m.status)
 	}
 }

@@ -27,4 +27,4 @@ jobs:
         run: go test ./...
 
       - name: Build
-        run: go build -o fmesstui ./cmd/fmesstui
+        run: go build -o lazyfmess ./cmd/lazyfmess

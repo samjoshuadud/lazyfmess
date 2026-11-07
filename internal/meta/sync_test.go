@@ -6,7 +6,7 @@ import (
 
 	"go.mau.fi/mautrix-meta/pkg/messagix/table"
 
-	"fmesstui/internal/store"
+	"lazyfmess/internal/store"
 )
 
 func TestApplyTable(t *testing.T) {

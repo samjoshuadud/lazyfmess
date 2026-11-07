@@ -11,7 +11,14 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"fmesstui/internal/store"
+	"lazyfmess/internal/store"
+)
+
+type focusPane int
+
+const (
+	focusList focusPane = iota
+	focusComposer
 )
 
 type SendResult struct {
@@ -24,6 +31,10 @@ type Sender interface {
 	AccountID() int64
 }
 
+type HistoryLoader interface {
+	LoadHistory(ctx context.Context, thread store.Thread) error
+}
+
 type threadItem struct {
 	thread store.Thread
 }
@@ -31,7 +42,7 @@ type threadItem struct {
 func (t threadItem) Title() string { return t.thread.Title }
 func (t threadItem) Description() string {
 	if t.thread.LastPreview == "" {
-		return fmt.Sprintf("%d", t.thread.ID)
+		return " "
 	}
 	return t.thread.LastPreview
 }
@@ -40,25 +51,40 @@ func (t threadItem) FilterValue() string { return t.thread.Title }
 type Model struct {
 	store      *store.Store
 	sender     Sender
+	history    HistoryLoader
 	ctx        context.Context
 	list       list.Model
 	viewport   viewport.Model
 	composer   textarea.Model
+	focus      focusPane
 	ready      bool
 	selectedID int64
 	status     string
 	toast      string
 	width      int
 	height     int
+	leftWidth  int
+	rightWidth int
+	messages   []store.Message
 }
 
-func New(ctx context.Context, s *store.Store, sender Sender) Model {
+type historyFinishedMsg struct {
+	threadID int64
+	err      error
+}
+
+func New(ctx context.Context, s *store.Store, sender Sender, history HistoryLoader) Model {
+	composer := newComposer()
+	composer.Focus()
 	return Model{
 		store:    s,
 		sender:   sender,
+		history:  history,
 		ctx:      ctx,
 		list:     newThreadList(),
-		composer: newComposer(),
+		viewport: viewport.New(1, 1),
+		composer: composer,
+		focus:    focusComposer,
 		status:   "loading",
 	}
 }
@@ -74,23 +100,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.layout()
 		m.ready = true
+		m.refreshViewport()
 		return m, nil
 	case RefreshMsg:
-		cmds := []tea.Cmd{m.loadThreads}
 		if m.selectedID != 0 {
-			cmds = append(cmds, m.loadMessages(m.selectedID))
+			return m, tea.Batch(m.loadThreads, m.loadMessages(m.selectedID))
 		}
-		return m, tea.Batch(cmds...)
+		return m, m.loadThreads
 	case toastExpiredMsg:
 		if msg.message == m.toast {
 			m.toast = ""
-			m.layout()
 		}
 		return m, nil
 	case toastMsg:
 		m.toast = msg.message
-		m.layout()
-		return m, tea.Tick(5*time.Second, func(time.Time) tea.Msg {
+		return m, tea.Tick(4*time.Second, func(time.Time) tea.Msg {
 			return toastExpiredMsg{message: msg.message}
 		})
 	case threadsLoadedMsg:
@@ -104,7 +128,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for i, t := range msg.threads {
 			title := t.Title
 			if title == "" {
-				title = fmt.Sprintf("thread %d", t.ID)
+				title = fmt.Sprintf("Chat %d", t.ID)
 				t.Title = title
 			}
 			items = append(items, threadItem{thread: t})
@@ -116,11 +140,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(items) > 0 {
 			m.list.Select(selectedIndex)
 		}
-		m.status = fmt.Sprintf("%d threads", len(items))
+		m.status = fmt.Sprintf("%d chats", len(items))
 		if selected == 0 && len(items) > 0 {
 			if item, ok := m.list.SelectedItem().(threadItem); ok {
 				m.selectedID = item.thread.ID
-				return m, m.loadMessages(item.thread.ID)
+				return m, tea.Batch(m.loadMessages(item.thread.ID), m.fetchHistory(item.thread))
 			}
 		}
 		return m, nil
@@ -132,9 +156,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.threadID != m.selectedID {
 			return m, nil
 		}
-		m.viewport.SetContent(renderMessages(msg.messages))
+		m.messages = msg.messages
+		m.refreshViewport()
 		m.viewport.GotoBottom()
 		return m, nil
+	case historyFinishedMsg:
+		if msg.threadID != m.selectedID {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.status = msg.err.Error()
+			return m, nil
+		}
+		m.status = "history synced"
+		return m, tea.Batch(m.loadThreads, m.loadMessages(msg.threadID))
 	case sendFinishedMsg:
 		if msg.err != nil {
 			_ = m.store.UpsertMessage(m.ctx, store.Message{
@@ -172,8 +207,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "esc":
 			return m, tea.Quit
+		case "tab":
+			m.toggleFocus()
+			return m, nil
 		case "enter":
-			if m.composer.Focused() && m.selectedID != 0 {
+			if m.focus == focusComposer && m.selectedID != 0 {
 				cmd, ok := m.queueSend()
 				if ok {
 					return m, tea.Batch(m.loadMessages(m.selectedID), cmd)
@@ -185,18 +223,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	var cmds []tea.Cmd
 	var cmd tea.Cmd
-	prevSelected := m.selectedID
-	m.list, cmd = m.list.Update(msg)
-	cmds = append(cmds, cmd)
-	if item, ok := m.list.SelectedItem().(threadItem); ok && item.thread.ID != prevSelected {
-		m.selectedID = item.thread.ID
-		cmds = append(cmds, m.loadMessages(item.thread.ID))
+	switch m.focus {
+	case focusList:
+		prevSelected := m.selectedID
+		m.list, cmd = m.list.Update(msg)
+		cmds = append(cmds, cmd)
+		if item, ok := m.list.SelectedItem().(threadItem); ok && item.thread.ID != prevSelected {
+			m.selectedID = item.thread.ID
+			cmds = append(cmds, m.loadMessages(item.thread.ID), m.fetchHistory(item.thread))
+		}
+		m.viewport, cmd = m.viewport.Update(msg)
+		cmds = append(cmds, cmd)
+	case focusComposer:
+		m.composer, cmd = m.composer.Update(msg)
+		cmds = append(cmds, cmd)
 	}
-	m.viewport, cmd = m.viewport.Update(msg)
-	cmds = append(cmds, cmd)
-	m.composer, cmd = m.composer.Update(msg)
-	cmds = append(cmds, cmd)
 	return m, tea.Batch(cmds...)
+}
+
+func (m *Model) toggleFocus() {
+	if m.focus == focusComposer {
+		m.focus = focusList
+		m.composer.Blur()
+		return
+	}
+	m.focus = focusComposer
+	m.composer.Focus()
+}
+
+func (m *Model) refreshViewport() {
+	m.viewport.SetContent(renderMessages(m.messages, m.rightWidth))
 }
 
 func (m Model) loadThreads() tea.Msg {
@@ -208,6 +264,16 @@ func (m Model) loadMessages(threadID int64) tea.Cmd {
 	return func() tea.Msg {
 		msgs, err := m.store.ListMessages(m.ctx, threadID)
 		return messagesLoadedMsg{threadID: threadID, messages: msgs, err: err}
+	}
+}
+
+func (m Model) fetchHistory(thread store.Thread) tea.Cmd {
+	if m.history == nil || thread.ID == 0 {
+		return nil
+	}
+	return func() tea.Msg {
+		err := m.history.LoadHistory(m.ctx, thread)
+		return historyFinishedMsg{threadID: thread.ID, err: err}
 	}
 }
 
@@ -263,8 +329,8 @@ type App struct {
 	program *tea.Program
 }
 
-func NewApp(ctx context.Context, s *store.Store, sender Sender) *App {
-	p := tea.NewProgram(New(ctx, s, sender), tea.WithAltScreen(), tea.WithContext(ctx))
+func NewApp(ctx context.Context, s *store.Store, sender Sender, history HistoryLoader) *App {
+	p := tea.NewProgram(New(ctx, s, sender, history), tea.WithAltScreen(), tea.WithContext(ctx))
 	return &App{program: p}
 }
 

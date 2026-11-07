@@ -2,7 +2,7 @@
 result-*
 .direnv/
 
-/fmesstui
+/lazyfmess
 /bin/
 *.exe
 *.test

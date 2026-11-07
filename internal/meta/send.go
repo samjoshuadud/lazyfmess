@@ -15,7 +15,7 @@ import (
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
 
-	"fmesstui/internal/store"
+	"lazyfmess/internal/store"
 )
 
 type SendResult struct {

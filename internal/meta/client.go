@@ -6,19 +6,21 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
 	"go.mau.fi/mautrix-meta/pkg/messagix"
 	"go.mau.fi/mautrix-meta/pkg/messagix/cookies"
 	"go.mau.fi/mautrix-meta/pkg/messagix/httpclient"
+	"go.mau.fi/mautrix-meta/pkg/messagix/securehistory"
 	"go.mau.fi/mautrix-meta/pkg/messagix/table"
 	"go.mau.fi/mautrix-meta/pkg/messagix/types"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 
-	"fmesstui/internal/session"
+	"lazyfmess/internal/session"
 )
 
 type EventHandler func(ctx context.Context, evt Event)
@@ -30,15 +32,17 @@ type Event struct {
 }
 
 type Client struct {
-	mx        *messagix.Client
-	handler   EventHandler
-	user      types.UserInfo
-	initial   *table.LSTable
-	dataDir   string
-	devices   *sqlstore.Container
-	device    *store.Device
-	e2ee      *whatsmeow.Client
-	newDevice bool
+	mx            *messagix.Client
+	handler       EventHandler
+	user          types.UserInfo
+	initial       *table.LSTable
+	dataDir       string
+	devices       *sqlstore.Container
+	device        *store.Device
+	e2ee          *whatsmeow.Client
+	newDevice     bool
+	historyMu     sync.Mutex
+	historyDevice *securehistory.Device
 }
 
 func New(sess *session.Cookies, dataDir string, logWriter io.Writer, handler EventHandler) (*Client, error) {
@@ -53,6 +57,9 @@ func New(sess *session.Cookies, dataDir string, logWriter io.Writer, handler Eve
 	cli := &Client{handler: handler, dataDir: dataDir}
 	cli.mx = messagix.NewClient(mc, logger, &messagix.Config{})
 	cli.mx.SetEventHandler(cli.onEvent)
+	if err := cli.loadHistoryDevice(); err != nil {
+		return nil, err
+	}
 	return cli, nil
 }
 
