@@ -102,6 +102,44 @@ func TestUpsertAndList(t *testing.T) {
 		t.Fatalf("unexpected dm messages: %+v", msgs)
 	}
 
+	if err := s.UpsertMessage(ctx, Message{
+		ID:              "m4",
+		ThreadID:        10,
+		SenderID:        10,
+		Text:            "cap",
+		Timestamp:       now.Add(time.Second),
+		MediaKind:       "image",
+		MediaURL:        "https://example.test/a.jpg",
+		MediaMime:       "image/jpeg",
+		MediaName:       "a.jpg",
+		MediaDurationMs: 0,
+	}); err != nil {
+		t.Fatalf("UpsertMessage media: %v", err)
+	}
+	msgs, err = s.ListMessages(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListMessages media: %v", err)
+	}
+	if len(msgs) != 2 || msgs[1].MediaKind != "image" || msgs[1].MediaURL == "" {
+		t.Fatalf("unexpected media messages: %+v", msgs)
+	}
+	if err := s.UpsertMessage(ctx, Message{
+		ID:        "m4",
+		ThreadID:  10,
+		SenderID:  10,
+		Text:      "cap2",
+		Timestamp: now.Add(2 * time.Second),
+	}); err != nil {
+		t.Fatalf("UpsertMessage preserve media: %v", err)
+	}
+	msgs, err = s.ListMessages(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListMessages preserve: %v", err)
+	}
+	if msgs[1].Text != "cap2" || msgs[1].MediaKind != "image" || msgs[1].MediaURL == "" {
+		t.Fatalf("media not preserved: %+v", msgs[1])
+	}
+
 	if filepath.Base(DBFileName) != DBFileName {
 		t.Fatal("unexpected db file name")
 	}

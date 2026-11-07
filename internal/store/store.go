@@ -22,14 +22,19 @@ type Thread struct {
 }
 
 type Message struct {
-	ID         string
-	ThreadID   int64
-	SenderID   int64
-	SenderName string
-	Text       string
-	Timestamp  time.Time
-	Pending    bool
-	Error      string
+	ID              string
+	ThreadID        int64
+	SenderID        int64
+	SenderName      string
+	Text            string
+	Timestamp       time.Time
+	Pending         bool
+	Error           string
+	MediaKind       string
+	MediaURL        string
+	MediaMime       string
+	MediaName       string
+	MediaDurationMs int64
 }
 
 type Store struct {
@@ -75,6 +80,11 @@ CREATE TABLE IF NOT EXISTS messages (
 	timestamp_ms INTEGER NOT NULL DEFAULT 0,
 	pending INTEGER NOT NULL DEFAULT 0,
 	error TEXT NOT NULL DEFAULT '',
+	media_kind TEXT NOT NULL DEFAULT '',
+	media_url TEXT NOT NULL DEFAULT '',
+	media_mime TEXT NOT NULL DEFAULT '',
+	media_name TEXT NOT NULL DEFAULT '',
+	media_duration_ms INTEGER NOT NULL DEFAULT 0,
 	FOREIGN KEY(thread_id) REFERENCES threads(id)
 );
 CREATE TABLE IF NOT EXISTS contacts (
@@ -94,6 +104,19 @@ CREATE INDEX IF NOT EXISTS messages_thread_ts ON messages(thread_id, timestamp_m
 	if _, err := s.db.ExecContext(ctx, `ALTER TABLE threads ADD COLUMN thread_type INTEGER NOT NULL DEFAULT 0`); err != nil {
 		if !isDuplicateColumn(err) {
 			return fmt.Errorf("migrate thread_type: %w", err)
+		}
+	}
+	for _, stmt := range []string{
+		`ALTER TABLE messages ADD COLUMN media_kind TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE messages ADD COLUMN media_url TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE messages ADD COLUMN media_mime TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE messages ADD COLUMN media_name TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE messages ADD COLUMN media_duration_ms INTEGER NOT NULL DEFAULT 0`,
+	} {
+		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+			if !isDuplicateColumn(err) {
+				return fmt.Errorf("migrate media columns: %w", err)
+			}
 		}
 	}
 	return nil
@@ -169,12 +192,16 @@ func (s *Store) OldestMessage(ctx context.Context, threadID int64) (Message, err
 	var ms int64
 	var pending int
 	err := s.db.QueryRowContext(ctx, `
-SELECT id, thread_id, sender_id, text, timestamp_ms, pending, error
+SELECT id, thread_id, sender_id, text, timestamp_ms, pending, error,
+	media_kind, media_url, media_mime, media_name, media_duration_ms
 FROM messages
 WHERE thread_id = ?
 ORDER BY timestamp_ms ASC, id ASC
 LIMIT 1
-`, threadID).Scan(&m.ID, &m.ThreadID, &m.SenderID, &m.Text, &ms, &pending, &m.Error)
+`, threadID).Scan(
+		&m.ID, &m.ThreadID, &m.SenderID, &m.Text, &ms, &pending, &m.Error,
+		&m.MediaKind, &m.MediaURL, &m.MediaMime, &m.MediaName, &m.MediaDurationMs,
+	)
 	if err == sql.ErrNoRows {
 		return Message{}, sql.ErrNoRows
 	}
@@ -208,16 +235,25 @@ func (s *Store) UpsertMessage(ctx context.Context, m Message) error {
 		pending = 1
 	}
 	_, err := s.db.ExecContext(ctx, `
-INSERT INTO messages (id, thread_id, sender_id, text, timestamp_ms, pending, error)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO messages (
+	id, thread_id, sender_id, text, timestamp_ms, pending, error,
+	media_kind, media_url, media_mime, media_name, media_duration_ms
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	thread_id=excluded.thread_id,
 	sender_id=excluded.sender_id,
 	text=excluded.text,
 	timestamp_ms=excluded.timestamp_ms,
 	pending=excluded.pending,
-	error=excluded.error
-`, m.ID, m.ThreadID, m.SenderID, m.Text, m.Timestamp.UnixMilli(), pending, m.Error)
+	error=excluded.error,
+	media_kind=CASE WHEN excluded.media_kind = '' THEN messages.media_kind ELSE excluded.media_kind END,
+	media_url=CASE WHEN excluded.media_url = '' THEN messages.media_url ELSE excluded.media_url END,
+	media_mime=CASE WHEN excluded.media_mime = '' THEN messages.media_mime ELSE excluded.media_mime END,
+	media_name=CASE WHEN excluded.media_name = '' THEN messages.media_name ELSE excluded.media_name END,
+	media_duration_ms=CASE WHEN excluded.media_duration_ms = 0 THEN messages.media_duration_ms ELSE excluded.media_duration_ms END
+`, m.ID, m.ThreadID, m.SenderID, m.Text, m.Timestamp.UnixMilli(), pending, m.Error,
+		m.MediaKind, m.MediaURL, m.MediaMime, m.MediaName, m.MediaDurationMs)
 	if err != nil {
 		return fmt.Errorf("upsert message: %w", err)
 	}
@@ -270,7 +306,8 @@ WHERE t.id = ?
 
 func (s *Store) ListMessages(ctx context.Context, threadID int64) ([]Message, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT m.id, m.thread_id, m.sender_id, COALESCE(c.name, ''), m.text, m.timestamp_ms, m.pending, m.error
+SELECT m.id, m.thread_id, m.sender_id, COALESCE(c.name, ''), m.text, m.timestamp_ms, m.pending, m.error,
+	m.media_kind, m.media_url, m.media_mime, m.media_name, m.media_duration_ms
 FROM messages m
 LEFT JOIN contacts c ON c.id = m.sender_id
 WHERE m.thread_id = ?
@@ -285,7 +322,10 @@ ORDER BY m.timestamp_ms ASC, m.id ASC
 		var m Message
 		var ms int64
 		var pending int
-		if err := rows.Scan(&m.ID, &m.ThreadID, &m.SenderID, &m.SenderName, &m.Text, &ms, &pending, &m.Error); err != nil {
+		if err := rows.Scan(
+			&m.ID, &m.ThreadID, &m.SenderID, &m.SenderName, &m.Text, &ms, &pending, &m.Error,
+			&m.MediaKind, &m.MediaURL, &m.MediaMime, &m.MediaName, &m.MediaDurationMs,
+		); err != nil {
 			return nil, fmt.Errorf("scan message: %w", err)
 		}
 		m.Timestamp = time.UnixMilli(ms)
