@@ -69,6 +69,39 @@ func TestUpsertAndList(t *testing.T) {
 		t.Fatalf("ThreadCount: got %d want 2", n)
 	}
 
+	if err := s.UpsertContact(ctx, 10, "Pat"); err != nil {
+		t.Fatalf("UpsertContact: %v", err)
+	}
+	if err := s.UpsertThread(ctx, Thread{ID: 10, Title: "", ThreadType: 1, UpdatedAt: now}); err != nil {
+		t.Fatalf("UpsertThread dm: %v", err)
+	}
+	threads, err = s.ListThreads(ctx)
+	if err != nil {
+		t.Fatalf("ListThreads after contact: %v", err)
+	}
+	found := false
+	for _, th := range threads {
+		if th.ID == 10 {
+			found = true
+			if th.Title != "Pat" {
+				t.Fatalf("dm title: got %q want Pat", th.Title)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("missing dm thread")
+	}
+	if err := s.UpsertMessage(ctx, Message{ID: "m3", ThreadID: 10, SenderID: 10, Text: "yo", Timestamp: now}); err != nil {
+		t.Fatalf("UpsertMessage: %v", err)
+	}
+	msgs, err = s.ListMessages(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListMessages dm: %v", err)
+	}
+	if len(msgs) != 1 || msgs[0].SenderName != "Pat" {
+		t.Fatalf("unexpected dm messages: %+v", msgs)
+	}
+
 	if filepath.Base(DBFileName) != DBFileName {
 		t.Fatal("unexpected db file name")
 	}

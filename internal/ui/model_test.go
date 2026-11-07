@@ -48,8 +48,8 @@ func TestModelLoadsThreadsAndMessages(t *testing.T) {
 	if len(m.list.Items()) != 1 {
 		t.Fatalf("thread items: got %d", len(m.list.Items()))
 	}
-	rendered := renderMessages([]store.Message{{ID: "m7", SenderID: 1, Text: "ping", Timestamp: now}})
-	if !strings.Contains(rendered, "ping") {
+	rendered := renderMessages([]store.Message{{ID: "m7", SenderID: 1, SenderName: "Dana", Text: "ping", Timestamp: now}})
+	if !strings.Contains(rendered, "ping") || !strings.Contains(rendered, "Dana") {
 		t.Fatalf("renderMessages missing text: %q", rendered)
 	}
 

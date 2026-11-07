@@ -70,6 +70,10 @@ func (c *Client) Connect(ctx context.Context) error {
 			return fmt.Errorf("load account from state: %w", err)
 		}
 		c.user = user
+		if u, initial, err := c.mx.LoadMessagesPage(ctx); err == nil {
+			c.user = u
+			c.initial = initial
+		}
 	}
 
 	if err := c.setupE2EE(ctx); err != nil {

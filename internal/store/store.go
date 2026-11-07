@@ -22,13 +22,14 @@ type Thread struct {
 }
 
 type Message struct {
-	ID        string
-	ThreadID  int64
-	SenderID  int64
-	Text      string
-	Timestamp time.Time
-	Pending   bool
-	Error     string
+	ID         string
+	ThreadID   int64
+	SenderID   int64
+	SenderName string
+	Text       string
+	Timestamp  time.Time
+	Pending    bool
+	Error      string
 }
 
 type Store struct {
@@ -76,6 +77,10 @@ CREATE TABLE IF NOT EXISTS messages (
 	error TEXT NOT NULL DEFAULT '',
 	FOREIGN KEY(thread_id) REFERENCES threads(id)
 );
+CREATE TABLE IF NOT EXISTS contacts (
+	id INTEGER PRIMARY KEY,
+	name TEXT NOT NULL DEFAULT ''
+);
 CREATE INDEX IF NOT EXISTS messages_thread_ts ON messages(thread_id, timestamp_ms);
 `
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
@@ -97,15 +102,43 @@ func isDuplicateColumn(err error) bool {
 	return strings.Contains(msg, "duplicate column") || strings.Contains(msg, "already exists")
 }
 
+func (s *Store) UpsertContact(ctx context.Context, id int64, name string) error {
+	if id == 0 || name == "" {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO contacts (id, name)
+VALUES (?, ?)
+ON CONFLICT(id) DO UPDATE SET
+	name=excluded.name
+`, id, name)
+	if err != nil {
+		return fmt.Errorf("upsert contact: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ContactName(ctx context.Context, id int64) (string, error) {
+	var name string
+	err := s.db.QueryRowContext(ctx, `SELECT name FROM contacts WHERE id = ?`, id).Scan(&name)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("contact name: %w", err)
+	}
+	return name, nil
+}
+
 func (s *Store) UpsertThread(ctx context.Context, t Thread) error {
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO threads (id, title, last_preview, thread_type, updated_at_ms)
 VALUES (?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
-	title=excluded.title,
-	last_preview=excluded.last_preview,
-	thread_type=excluded.thread_type,
-	updated_at_ms=excluded.updated_at_ms
+	title=CASE WHEN excluded.title = '' THEN threads.title ELSE excluded.title END,
+	last_preview=CASE WHEN excluded.last_preview = '' THEN threads.last_preview ELSE excluded.last_preview END,
+	thread_type=CASE WHEN excluded.thread_type = 0 THEN threads.thread_type ELSE excluded.thread_type END,
+	updated_at_ms=CASE WHEN excluded.updated_at_ms = 0 THEN threads.updated_at_ms ELSE excluded.updated_at_ms END
 `, t.ID, t.Title, t.LastPreview, t.ThreadType, t.UpdatedAt.UnixMilli())
 	if err != nil {
 		return fmt.Errorf("upsert thread: %w", err)
@@ -137,9 +170,12 @@ ON CONFLICT(id) DO UPDATE SET
 
 func (s *Store) ListThreads(ctx context.Context) ([]Thread, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, title, last_preview, thread_type, updated_at_ms
-FROM threads
-ORDER BY updated_at_ms DESC, id DESC
+SELECT t.id,
+	CASE WHEN t.title != '' THEN t.title ELSE COALESCE(c.name, '') END,
+	t.last_preview, t.thread_type, t.updated_at_ms
+FROM threads t
+LEFT JOIN contacts c ON c.id = t.id
+ORDER BY t.updated_at_ms DESC, t.id DESC
 `)
 	if err != nil {
 		return nil, fmt.Errorf("list threads: %w", err)
@@ -162,8 +198,12 @@ func (s *Store) GetThread(ctx context.Context, id int64) (Thread, error) {
 	var t Thread
 	var ms int64
 	err := s.db.QueryRowContext(ctx, `
-SELECT id, title, last_preview, thread_type, updated_at_ms
-FROM threads WHERE id = ?
+SELECT t.id,
+	CASE WHEN t.title != '' THEN t.title ELSE COALESCE(c.name, '') END,
+	t.last_preview, t.thread_type, t.updated_at_ms
+FROM threads t
+LEFT JOIN contacts c ON c.id = t.id
+WHERE t.id = ?
 `, id).Scan(&t.ID, &t.Title, &t.LastPreview, &t.ThreadType, &ms)
 	if err != nil {
 		return Thread{}, fmt.Errorf("get thread: %w", err)
@@ -174,10 +214,11 @@ FROM threads WHERE id = ?
 
 func (s *Store) ListMessages(ctx context.Context, threadID int64) ([]Message, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, thread_id, sender_id, text, timestamp_ms, pending, error
-FROM messages
-WHERE thread_id = ?
-ORDER BY timestamp_ms ASC, id ASC
+SELECT m.id, m.thread_id, m.sender_id, COALESCE(c.name, ''), m.text, m.timestamp_ms, m.pending, m.error
+FROM messages m
+LEFT JOIN contacts c ON c.id = m.sender_id
+WHERE m.thread_id = ?
+ORDER BY m.timestamp_ms ASC, m.id ASC
 `, threadID)
 	if err != nil {
 		return nil, fmt.Errorf("list messages: %w", err)
@@ -188,7 +229,7 @@ ORDER BY timestamp_ms ASC, id ASC
 		var m Message
 		var ms int64
 		var pending int
-		if err := rows.Scan(&m.ID, &m.ThreadID, &m.SenderID, &m.Text, &ms, &pending, &m.Error); err != nil {
+		if err := rows.Scan(&m.ID, &m.ThreadID, &m.SenderID, &m.SenderName, &m.Text, &ms, &pending, &m.Error); err != nil {
 			return nil, fmt.Errorf("scan message: %w", err)
 		}
 		m.Timestamp = time.UnixMilli(ms)
