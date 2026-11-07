@@ -40,6 +40,8 @@ Array form from a browser cookie export:
 
 The array form picks `messenger` or `facebook` from the cookie domain.
 
+If connect fails with an expired or rejected session, open Messenger in the browser, confirm the inbox loads, export cookies again, and replace `cookies.json`. Do not reuse an old export.
+
 ## Data directory
 
 Default path: `$XDG_CONFIG_HOME/fmesstui` (`os.UserConfigDir()/fmesstui`).

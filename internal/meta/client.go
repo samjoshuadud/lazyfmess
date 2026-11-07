@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog"
 	"go.mau.fi/mautrix-meta/pkg/messagix"
 	"go.mau.fi/mautrix-meta/pkg/messagix/cookies"
+	"go.mau.fi/mautrix-meta/pkg/messagix/httpclient"
 	"go.mau.fi/mautrix-meta/pkg/messagix/table"
 	"go.mau.fi/mautrix-meta/pkg/messagix/types"
 	"go.mau.fi/whatsmeow"
@@ -59,7 +60,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	if err := c.loadCachedState(); err != nil {
 		user, initial, err := c.mx.LoadMessagesPage(ctx)
 		if err != nil {
-			return fmt.Errorf("load messages page: %w", err)
+			return fmt.Errorf("load messages page: %w", mapConnectError(err))
 		}
 		c.user = user
 		c.initial = initial
@@ -185,6 +186,19 @@ func (c *Client) persistStateLoop(ctx context.Context) {
 			}
 			_ = session.SaveState(c.dataDir, state)
 		}
+	}
+}
+
+func mapConnectError(err error) error {
+	switch {
+	case errors.Is(err, httpclient.ErrTokenInvalidated):
+		return fmt.Errorf("cookies are expired or rejected by messenger; export a fresh cookies.json while logged in: %w", err)
+	case errors.Is(err, httpclient.ErrCheckpointRequired):
+		return fmt.Errorf("messenger requires a checkpoint in the browser before this client can connect: %w", err)
+	case errors.Is(err, httpclient.ErrChallengeRequired):
+		return fmt.Errorf("messenger requires a challenge in the browser before this client can connect: %w", err)
+	default:
+		return err
 	}
 }
 
