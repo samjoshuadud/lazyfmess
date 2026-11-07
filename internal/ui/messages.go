@@ -40,15 +40,21 @@ type toastMsg struct {
 	message string
 }
 
+const chatSidePad = 3
+
 func renderMessages(messages []store.Message, width int, selfID int64) string {
 	if width <= 0 {
 		width = 40
 	}
 	if len(messages) == 0 {
-		return statusStyle.Render("No messages yet")
+		return lipgloss.NewStyle().
+			Width(width).
+			PaddingLeft(chatSidePad).
+			PaddingRight(chatSidePad).
+			Render(statusStyle.Render("No messages yet"))
 	}
 
-	inner := width - 2
+	inner := width - chatSidePad*2
 	if inner < 16 {
 		inner = 16
 	}
@@ -94,7 +100,7 @@ func renderMessages(messages []store.Message, width int, selfID int64) string {
 			}
 		}
 
-		block := renderMessageBlock(msg, body, mine, showHeader, bubbleMax, inner)
+		block := renderMessageBlock(msg, body, mine, showHeader, bubbleMax, width)
 		b.WriteString(block)
 		prevSender = msg.SenderID
 		prevTime = msg.Timestamp
@@ -137,7 +143,12 @@ func renderMessageBlock(msg store.Message, body string, mine, showHeader bool, b
 		parts = append(parts, bodyStyle.Render(line))
 	}
 	block := strings.Join(parts, "\n")
-	return lipgloss.NewStyle().Width(paneWidth).Align(align).Render(block)
+	return lipgloss.NewStyle().
+		Width(paneWidth).
+		PaddingLeft(chatSidePad).
+		PaddingRight(chatSidePad).
+		Align(align).
+		Render(block)
 }
 
 func wrapWords(s string, width int) []string {
