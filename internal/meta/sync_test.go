@@ -108,6 +108,53 @@ func TestApplyTableResolvesDMTitleAndSender(t *testing.T) {
 	}
 }
 
+func TestApplyTableStoresImageAttachment(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	tbl := &table.LSTable{
+		LSInsertMessage: []*table.LSInsertMessage{
+			{
+				MessageId:   "mid-img",
+				ThreadKey:   42,
+				SenderId:    99,
+				Text:        "look",
+				TimestampMs: 1_700_000_000_100,
+			},
+		},
+		LSInsertAttachment: []*table.LSInsertAttachment{
+			{
+				MessageId:           "mid-img",
+				Filename:            "pic.jpg",
+				PlayableUrl:         "https://example.test/pic.jpg",
+				PlayableUrlMimeType: "image/jpeg",
+				AttachmentType:      table.AttachmentTypeImage,
+			},
+		},
+	}
+	if err := ApplyTable(ctx, s, tbl); err != nil {
+		t.Fatalf("ApplyTable: %v", err)
+	}
+	msgs, err := s.ListMessages(ctx, 42)
+	if err != nil {
+		t.Fatalf("ListMessages: %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("message count: %d", len(msgs))
+	}
+	if msgs[0].MediaKind != "image" || msgs[0].MediaURL != "https://example.test/pic.jpg" {
+		t.Fatalf("unexpected media: %+v", msgs[0])
+	}
+	if msgs[0].MediaName != "pic.jpg" || msgs[0].MediaMime != "image/jpeg" {
+		t.Fatalf("unexpected media meta: %+v", msgs[0])
+	}
+}
+
 func TestApplyTableStoresDeleteThenInsertMessages(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

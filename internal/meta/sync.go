@@ -183,12 +183,18 @@ func upsertWrapped(ctx context.Context, s *store.Store, msg *table.WrappedMessag
 	if err := s.EnsureThread(ctx, key); err != nil {
 		return err
 	}
+	kind, url, mime, name, durationMs := mediaFromWrapped(msg)
 	return s.UpsertMessage(ctx, store.Message{
-		ID:        msg.MessageId,
-		ThreadID:  key,
-		SenderID:  msg.SenderId,
-		Text:      msg.Text,
-		Timestamp: time.UnixMilli(msg.TimestampMs),
+		ID:              msg.MessageId,
+		ThreadID:        key,
+		SenderID:        msg.SenderId,
+		Text:            msg.Text,
+		Timestamp:       time.UnixMilli(msg.TimestampMs),
+		MediaKind:       kind,
+		MediaURL:        url,
+		MediaMime:       mime,
+		MediaName:       name,
+		MediaDurationMs: durationMs,
 	})
 }
 
