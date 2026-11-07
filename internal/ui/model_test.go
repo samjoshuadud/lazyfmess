@@ -36,7 +36,7 @@ func TestModelLoadsThreadsAndMessages(t *testing.T) {
 		t.Fatalf("UpsertMessage: %v", err)
 	}
 
-	m := New(ctx, s, stubSender{id: 1}, nil, nil, nil, Config{})
+	m := New(ctx, s, stubSender{id: 1}, nil, nil, nil, nil, Config{})
 	msg := m.loadThreads()
 	model, cmd := m.Update(msg)
 	m = model.(Model)
@@ -54,7 +54,8 @@ func TestModelLoadsThreadsAndMessages(t *testing.T) {
 	rendered := renderMessages([]store.Message{
 		{ID: "m7", SenderID: 2, SenderName: "Dana", Text: "ping", Timestamp: now},
 		{ID: "m8", SenderID: 1, SenderName: "Pat", Text: "pong", Timestamp: now.Add(time.Minute)},
-	}, 40, 1)
+		{ID: "m9", SenderID: 2, SenderName: "Dana", Text: "", Timestamp: now.Add(2 * time.Minute), MediaKind: "image", MediaURL: "https://example.test/a.jpg"},
+	}, 40, 1, "m9")
 	if !strings.Contains(rendered, "ping") || !strings.Contains(rendered, "Dana") {
 		t.Fatalf("renderMessages missing peer text: %q", rendered)
 	}
@@ -63,6 +64,9 @@ func TestModelLoadsThreadsAndMessages(t *testing.T) {
 	}
 	if strings.Contains(rendered, "Pat") {
 		t.Fatalf("self message should use you, not contact name: %q", rendered)
+	}
+	if !strings.Contains(rendered, "▸ [image]") {
+		t.Fatalf("renderMessages missing focused media placeholder: %q", rendered)
 	}
 
 	model, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
@@ -79,7 +83,7 @@ func TestRefreshReloadsThreads(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 	defer s.Close()
-	m := New(ctx, s, stubSender{id: 1}, nil, nil, nil, Config{})
+	m := New(ctx, s, stubSender{id: 1}, nil, nil, nil, nil, Config{})
 	model, cmd := m.Update(RefreshMsg{})
 	m = model.(Model)
 	if cmd == nil {
@@ -101,7 +105,7 @@ func TestHelpToggle(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 	defer s.Close()
-	m := New(ctx, s, stubSender{id: 1}, nil, nil, nil, Config{})
+	m := New(ctx, s, stubSender{id: 1}, nil, nil, nil, nil, Config{})
 	m.ready = true
 	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
 	m = model.(Model)
@@ -140,7 +144,7 @@ func TestPeopleSearchOpensChat(t *testing.T) {
 	searcher := &stubSearcher{
 		results: []PersonHit{{ID: 42, Name: "Dana", Context: "person", ThreadType: 1}},
 	}
-	m := New(ctx, s, stubSender{id: 1}, nil, nil, searcher, Config{})
+	m := New(ctx, s, stubSender{id: 1}, nil, nil, searcher, nil, Config{})
 	m.ready = true
 	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	m = model.(Model)

@@ -42,6 +42,10 @@ type HistoryUnlocker interface {
 	Unlock(ctx context.Context, pin string) error
 }
 
+type MediaOpener interface {
+	OpenMedia(ctx context.Context, msg store.Message) error
+}
+
 type Config struct {
 	PrefillPIN string
 	OnReady    func()
@@ -66,6 +70,7 @@ type Model struct {
 	history       HistoryLoader
 	unlocker      HistoryUnlocker
 	searcher      PersonSearcher
+	media         MediaOpener
 	onReady       func()
 	prefillPIN    string
 	ctx           context.Context
@@ -85,6 +90,7 @@ type Model struct {
 	searchResults []PersonHit
 	searchIndex   int
 	selectedID    int64
+	mediaFocusID  string
 	status        string
 	toast         string
 	width         int
@@ -104,7 +110,7 @@ type bootMsg struct {
 	err    error
 }
 
-func New(ctx context.Context, s *store.Store, sender Sender, history HistoryLoader, unlocker HistoryUnlocker, searcher PersonSearcher, cfg Config) Model {
+func New(ctx context.Context, s *store.Store, sender Sender, history HistoryLoader, unlocker HistoryUnlocker, searcher PersonSearcher, media MediaOpener, cfg Config) Model {
 	composer := newComposer()
 	composer.Blur()
 	return Model{
@@ -113,6 +119,7 @@ func New(ctx context.Context, s *store.Store, sender Sender, history HistoryLoad
 		history:    history,
 		unlocker:   unlocker,
 		searcher:   searcher,
+		media:      media,
 		onReady:    cfg.OnReady,
 		prefillPIN: strings.TrimSpace(cfg.PrefillPIN),
 		ctx:        ctx,
@@ -254,8 +261,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.messages = msg.messages
+		m.ensureMediaFocus()
 		m.refreshViewport()
 		m.viewport.GotoBottom()
+		return m, nil
+	case mediaOpenedMsg:
+		if msg.err != nil {
+			m.status = msg.err.Error()
+			return m, nil
+		}
+		m.status = "opened media"
 		return m, nil
 	case historyFinishedMsg:
 		if msg.threadID != m.selectedID {
@@ -448,6 +463,16 @@ func (m Model) updateMessages(msg tea.Msg) (Model, tea.Cmd) {
 		case "ctrl+u":
 			m.viewport.HalfViewUp()
 			return m, nil
+		case "[", "{":
+			m.cycleMediaFocus(-1)
+			m.refreshViewport()
+			return m, nil
+		case "]", "}":
+			m.cycleMediaFocus(1)
+			m.refreshViewport()
+			return m, nil
+		case "o", "enter":
+			return m, m.openFocusedMedia()
 		}
 	}
 	m.viewport, cmd = m.viewport.Update(msg)
@@ -490,7 +515,82 @@ func (m *Model) refreshViewport() {
 	if m.sender != nil {
 		selfID = m.sender.AccountID()
 	}
-	m.viewport.SetContent(renderMessages(m.messages, m.rightWidth, selfID))
+	m.viewport.SetContent(renderMessages(m.messages, m.rightWidth, selfID, m.mediaFocusID))
+}
+
+func (m *Model) mediaMessages() []store.Message {
+	out := make([]store.Message, 0)
+	for _, msg := range m.messages {
+		if msg.MediaKind != "" && msg.MediaURL != "" {
+			out = append(out, msg)
+		}
+	}
+	return out
+}
+
+func (m *Model) ensureMediaFocus() {
+	media := m.mediaMessages()
+	if len(media) == 0 {
+		m.mediaFocusID = ""
+		return
+	}
+	for _, msg := range media {
+		if msg.ID == m.mediaFocusID {
+			return
+		}
+	}
+	m.mediaFocusID = media[len(media)-1].ID
+}
+
+func (m *Model) cycleMediaFocus(delta int) {
+	media := m.mediaMessages()
+	if len(media) == 0 {
+		m.mediaFocusID = ""
+		m.status = "no media in this chat"
+		return
+	}
+	idx := len(media) - 1
+	for i, msg := range media {
+		if msg.ID == m.mediaFocusID {
+			idx = i
+			break
+		}
+	}
+	idx = (idx + delta) % len(media)
+	if idx < 0 {
+		idx += len(media)
+	}
+	m.mediaFocusID = media[idx].ID
+	m.status = mediaPlaceholder(media[idx], true)
+}
+
+func (m Model) openFocusedMedia() tea.Cmd {
+	m.ensureMediaFocus()
+	if m.mediaFocusID == "" {
+		return func() tea.Msg {
+			return mediaOpenedMsg{err: fmt.Errorf("no media in this chat")}
+		}
+	}
+	var target store.Message
+	found := false
+	for _, msg := range m.messages {
+		if msg.ID == m.mediaFocusID {
+			target = msg
+			found = true
+			break
+		}
+	}
+	if !found {
+		return func() tea.Msg {
+			return mediaOpenedMsg{err: fmt.Errorf("no media in this chat")}
+		}
+	}
+	return func() tea.Msg {
+		if m.media == nil {
+			return mediaOpenedMsg{err: fmt.Errorf("media open is unavailable")}
+		}
+		return mediaOpenedMsg{err: m.media.OpenMedia(m.ctx, target)}
+	}
 }
 
 func (m Model) loadThreads() tea.Msg {
@@ -567,8 +667,8 @@ type App struct {
 	program *tea.Program
 }
 
-func NewApp(ctx context.Context, s *store.Store, sender Sender, history HistoryLoader, unlocker HistoryUnlocker, searcher PersonSearcher, cfg Config) *App {
-	p := tea.NewProgram(New(ctx, s, sender, history, unlocker, searcher, cfg), tea.WithAltScreen(), tea.WithContext(ctx))
+func NewApp(ctx context.Context, s *store.Store, sender Sender, history HistoryLoader, unlocker HistoryUnlocker, searcher PersonSearcher, media MediaOpener, cfg Config) *App {
+	p := tea.NewProgram(New(ctx, s, sender, history, unlocker, searcher, media, cfg), tea.WithAltScreen(), tea.WithContext(ctx))
 	return &App{program: p}
 }
 

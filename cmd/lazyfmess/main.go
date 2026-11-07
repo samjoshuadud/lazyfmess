@@ -84,6 +84,14 @@ func (u unlockAdapter) Unlock(ctx context.Context, pin string) error {
 	return u.client.UnlockHistory(ctx, pin)
 }
 
+type mediaAdapter struct {
+	client *meta.Client
+}
+
+func (m mediaAdapter) OpenMedia(ctx context.Context, msg store.Message) error {
+	return m.client.OpenMedia(ctx, msg)
+}
+
 type searchAdapter struct {
 	client *meta.Client
 	store  *store.Store
@@ -187,6 +195,7 @@ func run() error {
 		historyAdapter{client: client, store: db},
 		unlockAdapter{client: client},
 		searchAdapter{client: client, store: db},
+		mediaAdapter{client: client},
 		ui.Config{
 			PrefillPIN: *pinFlag,
 			OnReady: func() {

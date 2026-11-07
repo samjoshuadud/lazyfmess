@@ -40,9 +40,13 @@ type toastMsg struct {
 	message string
 }
 
+type mediaOpenedMsg struct {
+	err error
+}
+
 const chatSidePad = 3
 
-func renderMessages(messages []store.Message, width int, selfID int64) string {
+func renderMessages(messages []store.Message, width int, selfID int64, mediaFocusID string) string {
 	if width <= 0 {
 		width = 40
 	}
@@ -72,19 +76,9 @@ func renderMessages(messages []store.Message, width int, selfID int64) string {
 	first := true
 
 	for _, msg := range messages {
-		body := strings.TrimSpace(msg.Text)
-		if body == "" && !msg.Pending && msg.Error == "" {
+		body := messageBody(msg, msg.ID == mediaFocusID)
+		if body == "" {
 			continue
-		}
-		if msg.Pending {
-			body = strings.TrimSpace(body + " …")
-		}
-		if msg.Error != "" {
-			if body == "" {
-				body = msg.Error
-			} else {
-				body += "\n" + msg.Error
-			}
 		}
 
 		mine := selfID != 0 && msg.SenderID == selfID
@@ -110,6 +104,57 @@ func renderMessages(messages []store.Message, width int, selfID int64) string {
 		return statusStyle.Render("No messages yet")
 	}
 	return b.String()
+}
+
+func messageBody(msg store.Message, mediaFocused bool) string {
+	body := strings.TrimSpace(msg.Text)
+	if msg.Pending {
+		body = strings.TrimSpace(body + " …")
+	}
+	if msg.Error != "" {
+		if body == "" {
+			body = msg.Error
+		} else {
+			body += "\n" + msg.Error
+		}
+	}
+	if msg.MediaKind != "" {
+		placeholder := mediaPlaceholder(msg, mediaFocused)
+		if body == "" {
+			body = placeholder
+		} else {
+			body += "\n" + placeholder
+		}
+	}
+	return body
+}
+
+func mediaPlaceholder(msg store.Message, focused bool) string {
+	label := "[image]"
+	switch msg.MediaKind {
+	case "video":
+		if msg.MediaDurationMs > 0 {
+			label = fmt.Sprintf("[video %s]", formatMediaDuration(msg.MediaDurationMs))
+		} else {
+			label = "[video]"
+		}
+	case "image":
+		label = "[image]"
+	default:
+		label = "[" + msg.MediaKind + "]"
+	}
+	if focused {
+		return "▸ " + label
+	}
+	return label
+}
+
+func formatMediaDuration(ms int64) string {
+	if ms < 0 {
+		ms = 0
+	}
+	sec := ms / 1000
+	return fmt.Sprintf("%d:%02d", sec/60, sec%60)
 }
 
 func renderMessageBlock(msg store.Message, body string, mine, showHeader bool, bubbleMax, paneWidth int) string {
