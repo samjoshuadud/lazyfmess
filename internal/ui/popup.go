@@ -148,7 +148,6 @@ func (m Model) renderPopup() string {
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(border).
-		Background(panel).
 		Padding(1, 2).
 		Width(width).
 		Render(lipgloss.JoinVertical(

@@ -14,7 +14,6 @@ var (
 	accent = lipgloss.Color("81")
 	danger = lipgloss.Color("203")
 	line   = lipgloss.Color("238")
-	panel  = lipgloss.Color("236")
 
 	titleStyle = lipgloss.NewStyle().
 			Foreground(accent).
@@ -39,13 +38,11 @@ var (
 	modalStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(accent).
-			Background(panel).
 			Padding(1, 2)
 
 	helpModalStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(line).
-			Background(panel).
 			Padding(1, 2)
 
 	focusMark = lipgloss.NewStyle().Foreground(accent).Bold(true)
