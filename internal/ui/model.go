@@ -60,6 +60,7 @@ type Services struct {
 	Searcher PersonSearcher
 	Media    MediaOpener
 	Reader   ReadMarker
+	Typing   TypingNotifier
 }
 
 type Config struct {
@@ -74,49 +75,53 @@ type threadItem struct {
 func (t threadItem) FilterValue() string { return t.thread.Title }
 
 type Model struct {
-	store         *store.Store
-	sender        Sender
-	history       HistoryLoader
-	unlocker      HistoryUnlocker
-	searcher      PersonSearcher
-	media         MediaOpener
-	reader        ReadMarker
-	onReady       func()
-	prefillPIN    string
-	ctx           context.Context
-	keys          keyMap
-	list          list.Model
-	viewport      viewport.Model
-	spinner       spinner.Model
-	inFlight      int
-	popup         *popup
-	composer      textarea.Model
-	pinInput      textinput.Model
-	searchInput   textinput.Model
-	focus         focusPane
-	ready         bool
-	showPIN       bool
-	showHelp      bool
-	showSearch    bool
-	pinErr        string
-	searchErr     string
-	searchQuery   string
-	searchResults []PersonHit
-	searchIndex   int
-	selectedID    int64
-	openedID      int64
-	lastMark      readMark
-	loadedID      int64
-	cursorID      string
-	spans         map[string]lineSpan
-	order         []string
-	status        string
-	toast         string
-	width         int
-	height        int
-	leftWidth     int
-	rightWidth    int
-	messages      []store.Message
+	store          *store.Store
+	sender         Sender
+	history        HistoryLoader
+	unlocker       HistoryUnlocker
+	searcher       PersonSearcher
+	media          MediaOpener
+	reader         ReadMarker
+	typingNotifier TypingNotifier
+	typing         map[int64]map[int64]time.Time
+	typingThread   int64
+	typingSentAt   time.Time
+	onReady        func()
+	prefillPIN     string
+	ctx            context.Context
+	keys           keyMap
+	list           list.Model
+	viewport       viewport.Model
+	spinner        spinner.Model
+	inFlight       int
+	popup          *popup
+	composer       textarea.Model
+	pinInput       textinput.Model
+	searchInput    textinput.Model
+	focus          focusPane
+	ready          bool
+	showPIN        bool
+	showHelp       bool
+	showSearch     bool
+	pinErr         string
+	searchErr      string
+	searchQuery    string
+	searchResults  []PersonHit
+	searchIndex    int
+	selectedID     int64
+	openedID       int64
+	lastMark       readMark
+	loadedID       int64
+	cursorID       string
+	spans          map[string]lineSpan
+	order          []string
+	status         string
+	toast          string
+	width          int
+	height         int
+	leftWidth      int
+	rightWidth     int
+	messages       []store.Message
 }
 
 type readMark struct {
@@ -146,24 +151,26 @@ func New(ctx context.Context, s *store.Store, svc Services, cfg Config) Model {
 	composer := newComposer()
 	composer.Blur()
 	return Model{
-		store:      s,
-		sender:     svc.Sender,
-		history:    svc.History,
-		unlocker:   svc.Unlocker,
-		searcher:   svc.Searcher,
-		media:      svc.Media,
-		reader:     svc.Reader,
-		onReady:    cfg.OnReady,
-		prefillPIN: strings.TrimSpace(cfg.PrefillPIN),
-		ctx:        ctx,
-		keys:       newKeyMap(),
-		list:       newThreadList(),
-		viewport:   viewport.New(1, 1),
-		spinner:    spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(lipgloss.NewStyle().Foreground(accent))),
-		composer:   composer,
-		pinInput:   newPINInput(),
-		focus:      focusList,
-		status:     "loading",
+		store:          s,
+		sender:         svc.Sender,
+		history:        svc.History,
+		unlocker:       svc.Unlocker,
+		searcher:       svc.Searcher,
+		media:          svc.Media,
+		reader:         svc.Reader,
+		typingNotifier: svc.Typing,
+		typing:         make(map[int64]map[int64]time.Time),
+		onReady:        cfg.OnReady,
+		prefillPIN:     strings.TrimSpace(cfg.PrefillPIN),
+		ctx:            ctx,
+		keys:           newKeyMap(),
+		list:           newThreadList(),
+		viewport:       viewport.New(1, 1),
+		spinner:        spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(lipgloss.NewStyle().Foreground(accent))),
+		composer:       composer,
+		pinInput:       newPINInput(),
+		focus:          focusList,
+		status:         "loading",
 	}
 }
 
@@ -312,6 +319,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport.GotoBottom()
 		}
 		return m, m.maybeMarkRead()
+	case typingMsg:
+		return m, m.applyTyping(msg)
+	case typingExpiredMsg:
+		m.expireTyping(time.Now())
+		return m, nil
+	case typingSentMsg:
+		if msg.err != nil {
+			m.status = "typing indicator failed"
+		}
+		return m, nil
 	case markReadMsg:
 		if msg.err != nil {
 			return m.Update(toastMsg{message: "mark read: " + msg.err.Error()})
@@ -367,7 +384,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.showHelp {
 		return m.updateHelp(msg)
 	}
-	return m.updateMain(msg)
+	m, cmd := m.updateMain(msg)
+	return m, tea.Batch(cmd, m.updateOwnTyping())
 }
 
 func (m Model) updateHelp(msg tea.Msg) (Model, tea.Cmd) {
@@ -655,12 +673,7 @@ func (m Model) sendPending(thread store.Thread, pending store.Message) error {
 }
 
 func (m Model) currentThread() (store.Thread, bool) {
-	for _, item := range m.list.Items() {
-		if t, ok := item.(threadItem); ok && t.thread.ID == m.selectedID {
-			return t.thread, true
-		}
-	}
-	return store.Thread{}, false
+	return m.threadByID(m.selectedID)
 }
 
 func (m *Model) maybeMarkRead() tea.Cmd {
@@ -722,6 +735,13 @@ func (a *App) Toast(message string) {
 		return
 	}
 	a.program.Send(toastMsg{message: message})
+}
+
+func (a *App) Typing(threadID, senderID int64, active bool) {
+	if a == nil || a.program == nil {
+		return
+	}
+	a.program.Send(typingMsg{threadID: threadID, senderID: senderID, active: active})
 }
 
 func (a *App) Error(message string) {

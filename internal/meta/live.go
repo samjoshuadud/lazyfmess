@@ -28,6 +28,10 @@ func (c *Client) onE2EEEvent(ctx context.Context, evt any) {
 		if live, ok := decodeLiveMessage(e); ok {
 			c.handler(ctx, Event{Type: "e2ee_message", live: &live})
 		}
+	case *events.ChatPresence:
+		if typing, ok := decodeChatPresence(e); ok {
+			c.handler(ctx, Event{Type: "e2ee_typing", typing: []Typing{typing}})
+		}
 	case *events.Disconnected:
 		c.handler(ctx, Event{Type: "e2ee_disconnected", Err: fmt.Errorf("encrypted chats disconnected")})
 	}

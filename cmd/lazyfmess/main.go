@@ -102,6 +102,14 @@ func (r readAdapter) MarkRead(ctx context.Context, thread store.Thread) error {
 	return r.client.MarkRead(ctx, r.store, thread)
 }
 
+type typingAdapter struct {
+	client *meta.Client
+}
+
+func (t typingAdapter) SetTyping(ctx context.Context, thread store.Thread, active bool) error {
+	return t.client.SetTyping(ctx, thread, active)
+}
+
 type searchAdapter struct {
 	client *meta.Client
 	store  *store.Store
@@ -190,6 +198,13 @@ func run() error {
 		if changed {
 			app.Notify()
 		}
+		typing, err := meta.TypingFromEvent(evtCtx, db, evt)
+		if err != nil {
+			log.Error().Err(err).Str("event", evt.Type).Msg("read typing event")
+		}
+		for _, t := range typing {
+			app.Typing(t.ThreadID, t.SenderID, t.Active)
+		}
 	})
 	if err != nil {
 		return err
@@ -213,6 +228,7 @@ func run() error {
 			Searcher: searchAdapter{client: client, store: db},
 			Media:    mediaAdapter{client: client},
 			Reader:   readAdapter{client: client, store: db},
+			Typing:   typingAdapter{client: client},
 		},
 		ui.Config{
 			PrefillPIN: *pinFlag,

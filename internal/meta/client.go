@@ -26,10 +26,11 @@ import (
 type EventHandler func(ctx context.Context, evt Event)
 
 type Event struct {
-	Type  string
-	Table *table.LSTable
-	Err   error
-	live  *liveMessage
+	Type   string
+	Table  *table.LSTable
+	Err    error
+	live   *liveMessage
+	typing []Typing
 }
 
 type Client struct {

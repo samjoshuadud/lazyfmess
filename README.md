@@ -103,6 +103,8 @@ Controls follow common lazy-style TUI navigation:
 - `?` shows every key binding; the bottom bar shows the keys for the focused panel
 - `q` quits (Esc goes back a pane)
 
+When someone is typing in the open chat, the compose panel title says so. Typing in the composer sends a typing indicator to the chat.
+
 Unread chats show in bold with a `●` marker, and the bottom bar counts them. Opening a chat marks it read on Messenger; moving the inbox cursor over a chat only previews it.
 
 Errors open in a popup over the interface; Enter or Esc dismisses it. Short notices such as reconnects appear briefly in the bottom bar.

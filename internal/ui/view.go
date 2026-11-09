@@ -38,7 +38,11 @@ func (m Model) renderBase() string {
 	}
 	left := frame(chatsTitle, m.focus == focusList, m.leftWidth, bodyH, m.list.View())
 	messages := frame("[2] "+m.conversationTitle(), m.focus == focusMessages, m.rightWidth, bodyH-composerFrameHeight, m.viewport.View())
-	composer := frame("[3] Compose", m.focus == focusComposer, m.rightWidth, composerFrameHeight, m.composer.View())
+	composeTitle := "[3] Compose"
+	if label := m.typingLabel(); label != "" {
+		composeTitle += " · " + label
+	}
+	composer := frame(composeTitle, m.focus == focusComposer, m.rightWidth, composerFrameHeight, m.composer.View())
 	body := lipgloss.JoinHorizontal(lipgloss.Top, left, messages+"\n"+composer)
 	return body + "\n" + m.renderStatusBar()
 }
