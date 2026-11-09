@@ -54,7 +54,15 @@ func run() error {
 	dataDirFlag := flag.String("data-dir", "", "directory for session and database files")
 	verbose := flag.Bool("verbose", false, "enable trace-level protocol logs in the log file")
 	pinFlag := flag.String("pin", "", "six-digit Messenger secure storage PIN for encrypted history")
+	demo := flag.Bool("demo", false, "")
+	flag.Usage = usage
 	flag.Parse()
+
+	if *demo {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return runDemo(ctx)
+	}
 
 	dir, err := resolveDataDir(*dataDirFlag)
 	if err != nil {
@@ -140,6 +148,17 @@ func run() error {
 	cancelSessions()
 	<-done
 	return err
+}
+
+func usage() {
+	out := flag.CommandLine.Output()
+	fmt.Fprintf(out, "Usage of %s:\n", os.Args[0])
+	flag.VisitAll(func(f *flag.Flag) {
+		if f.Name == "demo" {
+			return
+		}
+		fmt.Fprintf(out, "  -%s\n    \t%s\n", f.Name, f.Usage)
+	})
 }
 
 func connect(ctx context.Context, client *meta.Client, db *store.Store) error {
