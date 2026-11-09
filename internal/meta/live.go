@@ -65,6 +65,7 @@ func decodeLiveMessage(evt *events.FBMessage) (liveMessage, bool) {
 			SenderID:  senderID,
 			Text:      text,
 			Timestamp: evt.Info.Timestamp,
+			ReplyToID: evt.FBApplication.GetMetadata().GetQuotedMessage().GetStanzaID(),
 		},
 		threadType: threadType,
 		fromMe:     evt.Info.IsFromMe,

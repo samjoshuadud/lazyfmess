@@ -32,7 +32,7 @@ type SendResult struct {
 }
 
 type Sender interface {
-	SendText(ctx context.Context, thread store.Thread, text string) (SendResult, error)
+	SendText(ctx context.Context, thread store.Thread, text string, replyTo store.Message) (SendResult, error)
 	AccountID() int64
 }
 
@@ -113,6 +113,7 @@ type Model struct {
 	lastMark       readMark
 	loadedID       int64
 	cursorID       string
+	replyTo        store.Message
 	spans          map[string]lineSpan
 	order          []string
 	status         string
@@ -415,6 +416,9 @@ func (m Model) updateMain(msg tea.Msg) (Model, tea.Cmd) {
 	case key.Matches(k, keys.PrevPane):
 		m.cycleFocus(-1)
 		return m, nil
+	case key.Matches(k, keys.Back) && m.focus == focusComposer && m.replyTo.ID != "":
+		m.replyTo = store.Message{}
+		return m, nil
 	case key.Matches(k, keys.Back) && m.focus != focusList:
 		m.setFocus(focusList)
 		return m, nil
@@ -520,6 +524,10 @@ func (m Model) updateMessages(msg tea.Msg) (Model, tea.Cmd) {
 	case key.Matches(k, keys.OpenMedia):
 		msg, _ := m.cursorMessage()
 		return m, m.track(m.openMedia(msg))
+	case key.Matches(k, keys.Reply):
+		if msg, ok := m.cursorMessage(); ok {
+			m.startReply(msg)
+		}
 	case key.Matches(k, keys.Copy):
 		if msg, ok := m.cursorMessage(); ok && strings.TrimSpace(msg.Text) != "" {
 			return m, copyText(msg.Text)
@@ -623,18 +631,22 @@ func (m *Model) queueSend() tea.Cmd {
 		return nil
 	}
 	pending := store.Message{
-		ID:        fmt.Sprintf("pending-%d", time.Now().UnixNano()),
-		ThreadID:  thread.ID,
-		SenderID:  m.sender.AccountID(),
-		Text:      text,
-		Timestamp: time.Now(),
-		Pending:   true,
+		ID:            fmt.Sprintf("pending-%d", time.Now().UnixNano()),
+		ThreadID:      thread.ID,
+		SenderID:      m.sender.AccountID(),
+		Text:          text,
+		Timestamp:     time.Now(),
+		Pending:       true,
+		ReplyToID:     m.replyTo.ID,
+		ReplyText:     m.replyTo.Text,
+		ReplySenderID: m.replyTo.SenderID,
 	}
 	if err := m.store.UpsertMessage(m.ctx, pending); err != nil {
 		m.showError(fmt.Sprintf("send: %v", err))
 		return nil
 	}
 	m.composer.Reset()
+	m.replyTo = store.Message{}
 	m.status = "sending"
 	send := func() tea.Msg {
 		return sendFinishedMsg{threadID: thread.ID, err: m.sendPending(thread, pending)}
@@ -643,7 +655,8 @@ func (m *Model) queueSend() tea.Cmd {
 }
 
 func (m Model) sendPending(thread store.Thread, pending store.Message) error {
-	result, err := m.sender.SendText(m.ctx, thread, pending.Text)
+	replyTo := store.Message{ID: pending.ReplyToID, SenderID: pending.ReplySenderID}
+	result, err := m.sender.SendText(m.ctx, thread, pending.Text, replyTo)
 	if err != nil {
 		pending.Pending = false
 		pending.Error = err.Error()
@@ -655,13 +668,9 @@ func (m Model) sendPending(thread store.Thread, pending store.Message) error {
 	if err := m.store.DeleteMessage(m.ctx, pending.ID); err != nil {
 		return fmt.Errorf("remove pending message: %w", err)
 	}
-	if err := m.store.UpsertMessage(m.ctx, store.Message{
-		ID:        result.MessageID,
-		ThreadID:  thread.ID,
-		SenderID:  pending.SenderID,
-		Text:      pending.Text,
-		Timestamp: result.Timestamp,
-	}); err != nil {
+	sent := pending
+	sent.ID, sent.Timestamp, sent.Pending = result.MessageID, result.Timestamp, false
+	if err := m.store.UpsertMessage(m.ctx, sent); err != nil {
 		return fmt.Errorf("save sent message: %w", err)
 	}
 	thread.LastPreview = pending.Text

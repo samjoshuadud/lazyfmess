@@ -221,3 +221,28 @@ func TestApplyTableReadState(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyTableKeepsReplyFields(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	tbl := &table.LSTable{
+		LSInsertMessage: []*table.LSInsertMessage{
+			{MessageId: "mid-2", ThreadKey: 42, SenderId: 7, Text: "yes", TimestampMs: 1_700_000_000_200, ReplySourceId: "mid-1", ReplyMessageText: "lunch?", ReplyToUserId: 9},
+		},
+	}
+	if err := ApplyTable(ctx, s, tbl); err != nil {
+		t.Fatalf("ApplyTable: %v", err)
+	}
+	msgs, err := s.ListMessages(ctx, 42)
+	if err != nil || len(msgs) != 1 {
+		t.Fatalf("ListMessages: %+v %v", msgs, err)
+	}
+	if m := msgs[0]; m.ReplyToID != "mid-1" || m.ReplyText != "lunch?" || m.ReplySenderID != 9 {
+		t.Fatalf("reply fields: %+v", m)
+	}
+}

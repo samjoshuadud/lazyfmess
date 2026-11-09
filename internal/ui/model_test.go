@@ -19,7 +19,7 @@ type stubSender struct {
 }
 
 func (s stubSender) AccountID() int64 { return s.id }
-func (s stubSender) SendText(context.Context, store.Thread, string) (SendResult, error) {
+func (s stubSender) SendText(context.Context, store.Thread, string, store.Message) (SendResult, error) {
 	return SendResult{MessageID: "sent-1", Timestamp: time.UnixMilli(1_700_000_000_500)}, nil
 }
 

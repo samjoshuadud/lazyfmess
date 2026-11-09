@@ -40,6 +40,10 @@ type Message struct {
 	MediaMime       string
 	MediaName       string
 	MediaDurationMs int64
+	ReplyToID       string
+	ReplyText       string
+	ReplySenderID   int64
+	ReplySenderName string
 }
 
 type Store struct {
@@ -122,10 +126,13 @@ CREATE INDEX IF NOT EXISTS messages_thread_ts ON messages(thread_id, timestamp_m
 		`ALTER TABLE messages ADD COLUMN media_mime TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE messages ADD COLUMN media_name TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE messages ADD COLUMN media_duration_ms INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE messages ADD COLUMN reply_to_id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE messages ADD COLUMN reply_text TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE messages ADD COLUMN reply_sender_id INTEGER NOT NULL DEFAULT 0`,
 	} {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
 			if !isDuplicateColumn(err) {
-				return fmt.Errorf("migrate media columns: %w", err)
+				return fmt.Errorf("migrate message columns: %w", err)
 			}
 		}
 	}
@@ -247,9 +254,10 @@ func (s *Store) UpsertMessage(ctx context.Context, m Message) error {
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO messages (
 	id, thread_id, sender_id, text, timestamp_ms, pending, error,
-	media_kind, media_url, media_mime, media_name, media_duration_ms
+	media_kind, media_url, media_mime, media_name, media_duration_ms,
+	reply_to_id, reply_text, reply_sender_id
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	thread_id=excluded.thread_id,
 	sender_id=excluded.sender_id,
@@ -261,9 +269,13 @@ ON CONFLICT(id) DO UPDATE SET
 	media_url=CASE WHEN excluded.media_url = '' THEN messages.media_url ELSE excluded.media_url END,
 	media_mime=CASE WHEN excluded.media_mime = '' THEN messages.media_mime ELSE excluded.media_mime END,
 	media_name=CASE WHEN excluded.media_name = '' THEN messages.media_name ELSE excluded.media_name END,
-	media_duration_ms=CASE WHEN excluded.media_duration_ms = 0 THEN messages.media_duration_ms ELSE excluded.media_duration_ms END
+	media_duration_ms=CASE WHEN excluded.media_duration_ms = 0 THEN messages.media_duration_ms ELSE excluded.media_duration_ms END,
+	reply_to_id=CASE WHEN excluded.reply_to_id = '' THEN messages.reply_to_id ELSE excluded.reply_to_id END,
+	reply_text=CASE WHEN excluded.reply_text = '' THEN messages.reply_text ELSE excluded.reply_text END,
+	reply_sender_id=CASE WHEN excluded.reply_sender_id = 0 THEN messages.reply_sender_id ELSE excluded.reply_sender_id END
 `, m.ID, m.ThreadID, m.SenderID, m.Text, m.Timestamp.UnixMilli(), pending, m.Error,
-		m.MediaKind, m.MediaURL, m.MediaMime, m.MediaName, m.MediaDurationMs)
+		m.MediaKind, m.MediaURL, m.MediaMime, m.MediaName, m.MediaDurationMs,
+		m.ReplyToID, m.ReplyText, m.ReplySenderID)
 	if err != nil {
 		return fmt.Errorf("upsert message: %w", err)
 	}
@@ -319,9 +331,15 @@ WHERE t.id = ?
 func (s *Store) ListMessages(ctx context.Context, threadID int64) ([]Message, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT m.id, m.thread_id, m.sender_id, COALESCE(c.name, ''), m.text, m.timestamp_ms, m.pending, m.error,
-	m.media_kind, m.media_url, m.media_mime, m.media_name, m.media_duration_ms
+	m.media_kind, m.media_url, m.media_mime, m.media_name, m.media_duration_ms,
+	m.reply_to_id,
+	CASE WHEN m.reply_text != '' THEN m.reply_text ELSE COALESCE(r.text, '') END,
+	CASE WHEN m.reply_sender_id != 0 THEN m.reply_sender_id ELSE COALESCE(r.sender_id, 0) END,
+	COALESCE(rc.name, '')
 FROM messages m
 LEFT JOIN contacts c ON c.id = m.sender_id
+LEFT JOIN messages r ON m.reply_to_id != '' AND r.id = m.reply_to_id
+LEFT JOIN contacts rc ON rc.id = CASE WHEN m.reply_sender_id != 0 THEN m.reply_sender_id ELSE r.sender_id END
 WHERE m.thread_id = ?
 ORDER BY m.timestamp_ms ASC, m.id ASC
 `, threadID)
@@ -337,6 +355,7 @@ ORDER BY m.timestamp_ms ASC, m.id ASC
 		if err := rows.Scan(
 			&m.ID, &m.ThreadID, &m.SenderID, &m.SenderName, &m.Text, &ms, &pending, &m.Error,
 			&m.MediaKind, &m.MediaURL, &m.MediaMime, &m.MediaName, &m.MediaDurationMs,
+			&m.ReplyToID, &m.ReplyText, &m.ReplySenderID, &m.ReplySenderName,
 		); err != nil {
 			return nil, fmt.Errorf("scan message: %w", err)
 		}

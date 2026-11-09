@@ -189,3 +189,50 @@ func TestReadState(t *testing.T) {
 		t.Fatalf("thread should be read: %+v", thread)
 	}
 }
+
+func TestReplyResolvesFromLocalMessage(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, err := Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	base := time.UnixMilli(1_700_000_000_000)
+	if err := s.UpsertContact(ctx, 2, "Dana"); err != nil {
+		t.Fatalf("UpsertContact: %v", err)
+	}
+	msgs := []Message{
+		{ID: "orig", ThreadID: 1, SenderID: 2, Text: "lunch?", Timestamp: base},
+		{ID: "local", ThreadID: 1, SenderID: 1, Text: "yes", Timestamp: base.Add(time.Second), ReplyToID: "orig"},
+		{ID: "server", ThreadID: 1, SenderID: 1, Text: "ok", Timestamp: base.Add(2 * time.Second), ReplyToID: "gone", ReplyText: "old text", ReplySenderID: 2},
+	}
+	if err := s.EnsureThread(ctx, 1); err != nil {
+		t.Fatalf("EnsureThread: %v", err)
+	}
+	for _, m := range msgs {
+		if err := s.UpsertMessage(ctx, m); err != nil {
+			t.Fatalf("UpsertMessage: %v", err)
+		}
+	}
+	got, err := s.ListMessages(ctx, 1)
+	if err != nil {
+		t.Fatalf("ListMessages: %v", err)
+	}
+	tests := []struct {
+		idx                int
+		text, name, target string
+	}{
+		{1, "lunch?", "Dana", "orig"},
+		{2, "old text", "Dana", "gone"},
+	}
+	for _, tt := range tests {
+		m := got[tt.idx]
+		if m.ReplyToID != tt.target || m.ReplyText != tt.text || m.ReplySenderName != tt.name {
+			t.Errorf("message %s: reply %q %q %q", m.ID, m.ReplyToID, m.ReplyText, m.ReplySenderName)
+		}
+	}
+	if got[0].ReplyToID != "" {
+		t.Errorf("original should have no reply: %+v", got[0])
+	}
+}

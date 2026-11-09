@@ -69,7 +69,7 @@ func TestPopupKeys(t *testing.T) {
 type failingSender struct{}
 
 func (failingSender) AccountID() int64 { return 1 }
-func (failingSender) SendText(context.Context, store.Thread, string) (SendResult, error) {
+func (failingSender) SendText(context.Context, store.Thread, string, store.Message) (SendResult, error) {
 	return SendResult{}, errors.New("network down")
 }
 

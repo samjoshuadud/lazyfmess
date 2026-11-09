@@ -56,8 +56,8 @@ func (s senderAdapter) AccountID() int64 {
 	return s.client.AccountID()
 }
 
-func (s senderAdapter) SendText(ctx context.Context, thread store.Thread, text string) (ui.SendResult, error) {
-	result, err := s.client.SendText(ctx, thread, text)
+func (s senderAdapter) SendText(ctx context.Context, thread store.Thread, text string, replyTo store.Message) (ui.SendResult, error) {
+	result, err := s.client.SendText(ctx, thread, text, replyTo)
 	if err != nil {
 		return ui.SendResult{}, err
 	}

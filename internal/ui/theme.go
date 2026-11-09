@@ -67,6 +67,8 @@ var (
 	pendingBodyStyle = lipgloss.NewStyle().Foreground(muted)
 
 	errorBodyStyle = lipgloss.NewStyle().Foreground(danger)
+
+	quoteStyle = lipgloss.NewStyle().Foreground(muted).Italic(true)
 )
 
 func newThreadList() list.Model {

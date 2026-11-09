@@ -218,6 +218,9 @@ func upsertWrapped(ctx context.Context, s *store.Store, msg *table.WrappedMessag
 		MediaMime:       mime,
 		MediaName:       name,
 		MediaDurationMs: durationMs,
+		ReplyToID:       msg.ReplySourceId,
+		ReplyText:       msg.ReplyMessageText,
+		ReplySenderID:   msg.ReplyToUserId,
 	})
 }
 
@@ -233,10 +236,13 @@ func upsertDeletedMessage(ctx context.Context, s *store.Store, msg *table.LSDele
 		return err
 	}
 	return s.UpsertMessage(ctx, store.Message{
-		ID:        msg.MessageId,
-		ThreadID:  key,
-		SenderID:  msg.SenderId,
-		Text:      msg.Text,
-		Timestamp: time.UnixMilli(msg.TimestampMs),
+		ID:            msg.MessageId,
+		ThreadID:      key,
+		SenderID:      msg.SenderId,
+		Text:          msg.Text,
+		Timestamp:     time.UnixMilli(msg.TimestampMs),
+		ReplyToID:     msg.ReplySourceId,
+		ReplyText:     msg.ReplyMessageText,
+		ReplySenderID: msg.ReplyToUserId,
 	})
 }

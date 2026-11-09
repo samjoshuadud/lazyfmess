@@ -7,6 +7,7 @@ import (
 	"unicode"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"lazyfmess/internal/store"
 )
@@ -83,7 +84,7 @@ func renderMessages(messages []store.Message, width int, selfID int64, cursorID 
 		if newDay {
 			rows = append(rows, daySeparator(dayLabel(msg.Timestamp, now), width), "")
 		}
-		block := strings.Split(renderMessageBlock(msg, body, mine, showHeader, bubbleMax, width), "\n")
+		block := strings.Split(renderMessageBlock(msg, body, replyQuote(msg, selfID), mine, showHeader, bubbleMax, width), "\n")
 		gutter := " "
 		if msg.ID == cursorID {
 			gutter = focusMark.Render("▌")
@@ -155,7 +156,31 @@ func formatMediaDuration(ms int64) string {
 	return fmt.Sprintf("%d:%02d", sec/60, sec%60)
 }
 
-func renderMessageBlock(msg store.Message, body string, mine, showHeader bool, bubbleMax, paneWidth int) string {
+func replyQuote(msg store.Message, selfID int64) string {
+	if msg.ReplyToID == "" {
+		return ""
+	}
+	text := strings.Join(strings.Fields(msg.ReplyText), " ")
+	if text == "" {
+		text = "a message"
+	}
+	return "↪ " + replyName(store.Message{SenderID: msg.ReplySenderID, SenderName: msg.ReplySenderName}, selfID) + ": " + text
+}
+
+func replyName(msg store.Message, selfID int64) string {
+	switch {
+	case msg.SenderID != 0 && msg.SenderID == selfID:
+		return "you"
+	case msg.SenderName != "":
+		return msg.SenderName
+	case msg.SenderID != 0:
+		return fmt.Sprintf("%d", msg.SenderID)
+	default:
+		return "message"
+	}
+}
+
+func renderMessageBlock(msg store.Message, body, quote string, mine, showHeader bool, bubbleMax, paneWidth int) string {
 	name := "you"
 	nameStyle := selfNameStyle
 	bodyStyle := selfBodyStyle
@@ -180,6 +205,9 @@ func renderMessageBlock(msg store.Message, body string, mine, showHeader bool, b
 	if showHeader {
 		header := nameStyle.Render(name) + "  " + ts
 		parts = append(parts, header)
+	}
+	if quote != "" {
+		parts = append(parts, quoteStyle.Render(ansi.Truncate(quote, bubbleMax, "…")))
 	}
 
 	for _, line := range wrapWords(body, bubbleMax) {

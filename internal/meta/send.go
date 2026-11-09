@@ -12,6 +12,8 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waConsumerApplication"
+	"go.mau.fi/whatsmeow/proto/waMsgApplication"
+	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
 
 	"lazyfmess/internal/store"
@@ -22,23 +24,23 @@ type SendResult struct {
 	Timestamp time.Time
 }
 
-func (c *Client) SendText(ctx context.Context, thread store.Thread, text string) (SendResult, error) {
+func (c *Client) SendText(ctx context.Context, thread store.Thread, text string, replyTo store.Message) (SendResult, error) {
 	text = trimMessage(text)
 	if text == "" {
 		return SendResult{}, fmt.Errorf("message is empty")
 	}
 	if table.ThreadType(thread.ThreadType).IsWhatsApp() {
-		return c.sendE2EEText(ctx, thread, text)
+		return c.sendE2EEText(ctx, thread, text, replyTo)
 	}
-	return c.sendLightspeedText(ctx, thread.ID, text)
+	return c.sendLightspeedText(ctx, thread.ID, text, replyTo)
 }
 
-func (c *Client) sendLightspeedText(ctx context.Context, threadID int64, text string) (SendResult, error) {
+func (c *Client) sendLightspeedText(ctx context.Context, threadID int64, text string, replyTo store.Message) (SendResult, error) {
 	if err := c.mx.WaitUntilCanSendMessages(ctx, 15*time.Second); err != nil {
 		return SendResult{}, fmt.Errorf("wait to send: %w", err)
 	}
 	otid := methods.GenerateEpochID()
-	resp, err := c.mx.ExecuteTasks(ctx, &socket.SendMessageTask{
+	task := &socket.SendMessageTask{
 		ThreadId:         threadID,
 		Otid:             otid,
 		Source:           table.MESSENGER_INBOX_IN_THREAD,
@@ -46,7 +48,15 @@ func (c *Client) sendLightspeedText(ctx context.Context, threadID int64, text st
 		SendType:         table.TEXT,
 		Text:             text,
 		SyncGroup:        1,
-	})
+	}
+	if replyTo.ID != "" {
+		task.ReplyMetaData = &socket.ReplyMetaData{
+			ReplyMessageId:  replyTo.ID,
+			ReplySourceType: 1,
+			ReplySender:     replyTo.SenderID,
+		}
+	}
+	resp, err := c.mx.ExecuteTasks(ctx, task)
 	if err != nil {
 		return SendResult{}, fmt.Errorf("execute send task: %w", err)
 	}
@@ -66,7 +76,7 @@ func (c *Client) sendLightspeedText(ctx context.Context, threadID int64, text st
 	return SendResult{MessageID: msgID, Timestamp: ts}, nil
 }
 
-func (c *Client) sendE2EEText(ctx context.Context, thread store.Thread, text string) (SendResult, error) {
+func (c *Client) sendE2EEText(ctx context.Context, thread store.Thread, text string, replyTo store.Message) (SendResult, error) {
 	if c.e2ee == nil {
 		return SendResult{}, fmt.Errorf("e2ee client is not connected")
 	}
@@ -84,7 +94,17 @@ func (c *Client) sendE2EEText(ctx context.Context, thread store.Thread, text str
 			},
 		},
 	}
-	resp, err := c.e2ee.SendFBMessage(ctx, chat, payload, nil, whatsmeow.SendRequestExtra{ID: msgID})
+	var metadata *waMsgApplication.MessageApplication_Metadata
+	if replyTo.ID != "" {
+		participant := types.JID{User: strconv.FormatInt(replyTo.SenderID, 10), Server: types.MessengerServer}
+		metadata = &waMsgApplication.MessageApplication_Metadata{
+			QuotedMessage: &waMsgApplication.MessageApplication_Metadata_QuotedMessage{
+				StanzaID:    proto.String(replyTo.ID),
+				Participant: proto.String(participant.String()),
+			},
+		}
+	}
+	resp, err := c.e2ee.SendFBMessage(ctx, chat, payload, metadata, whatsmeow.SendRequestExtra{ID: msgID})
 	if err != nil {
 		return SendResult{}, fmt.Errorf("send e2ee message: %w", err)
 	}
