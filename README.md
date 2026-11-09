@@ -2,6 +2,10 @@
 
 Unofficial terminal client for Messenger, with lazygit-style keyboard navigation.
 
+![lazyfmess demo: browsing chats, sending a message, reacting, and the key help](docs/demo.gif)
+
+The recording uses made-up chats and names.
+
 lazyfmess is not affiliated with, endorsed by, or sponsored by Meta Platforms, Inc. Messenger is a trademark of Meta Platforms, Inc.
 
 ## Features
