@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/rs/zerolog"
@@ -161,9 +162,10 @@ func run() error {
 	}
 	defer db.Close()
 
-	var app *ui.App
+	var appRef atomic.Pointer[ui.App]
 	client, err := meta.New(cookies, dir, logWriter, func(evtCtx context.Context, evt meta.Event) {
-		if evt.Err != nil && app != nil {
+		app := appRef.Load()
+		if evt.Err != nil {
 			app.Toast(evt.Err.Error())
 		}
 		if evt.Table == nil {
@@ -172,9 +174,7 @@ func run() error {
 		if err := meta.ApplyTable(evtCtx, db, evt.Table); err != nil {
 			return
 		}
-		if app != nil {
-			app.Notify()
-		}
+		app.Notify()
 	})
 	if err != nil {
 		return err
@@ -188,7 +188,7 @@ func run() error {
 		return fmt.Errorf("sync initial table: %w", err)
 	}
 
-	app = ui.NewApp(
+	app := ui.NewApp(
 		ctx,
 		db,
 		senderAdapter{client: client},
@@ -199,19 +199,20 @@ func run() error {
 		ui.Config{
 			PrefillPIN: *pinFlag,
 			OnReady: func() {
-				go syncHistoryBackground(ctx, client, db, app)
+				go syncHistoryBackground(ctx, client, db, appRef.Load())
 			},
 		},
 	)
+	appRef.Store(app)
 	return app.Run()
 }
 
 func syncHistoryBackground(ctx context.Context, client *meta.Client, db *store.Store, app *ui.App) {
-	if err := client.SyncInboxThreads(ctx, db); err == nil && app != nil {
+	if err := client.SyncInboxThreads(ctx, db); err == nil {
 		app.Notify()
 	}
 	if client.HasHistoryDevice() {
-		if err := client.SyncAllEncryptedHistory(ctx, db); err == nil && app != nil {
+		if err := client.SyncAllEncryptedHistory(ctx, db); err == nil {
 			app.Notify()
 		}
 	}
