@@ -284,7 +284,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.err != nil {
-			m.login.screen = loginPaste
+			m.login.screen = m.login.returnTo
 			m.login.err = msg.err.Error()
 			return m, nil
 		}

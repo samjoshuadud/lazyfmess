@@ -18,6 +18,8 @@ type fakeLogin struct {
 	cookieErr error
 	steps     []LoginStep
 	aborted   int
+	browsers  []string
+	imported  string
 }
 
 func (f *fakeLogin) next() (LoginStep, error) {
@@ -39,6 +41,11 @@ func (f *fakeLogin) Wait(context.Context) (LoginStep, error)       { return f.ne
 func (f *fakeLogin) CancelStep(context.Context) (LoginStep, error) { return f.next() }
 func (f *fakeLogin) OpenAttachment(string) error                   { return nil }
 func (f *fakeLogin) Abort()                                        { f.aborted++ }
+func (f *fakeLogin) Browsers() []string                            { return f.browsers }
+func (f *fakeLogin) ImportBrowser(_ context.Context, name string) error {
+	f.imported = name
+	return f.cookieErr
+}
 func (f *fakeLogin) UseCookies(_ context.Context, raw string) error {
 	f.cookies = raw
 	return f.cookieErr
@@ -119,5 +126,24 @@ func TestLoginEscStartsOver(t *testing.T) {
 	m = drain(t, m, keyPress("esc"))
 	if m.login.screen != loginChoose || svc.aborted == 0 {
 		t.Fatalf("esc: screen %v aborted %d", m.login.screen, svc.aborted)
+	}
+}
+
+func TestImportFromBrowserChoice(t *testing.T) {
+	t.Parallel()
+	svc := &fakeLogin{browsers: []string{"Firefox (default)"}, cookieErr: errors.New("no logged-in session found")}
+	m := loginModel(t, svc)
+	if !strings.Contains(ansi.Strip(m.View()), "Import cookies from Firefox (default)") {
+		t.Fatal("browser choice missing")
+	}
+	m = drain(t, m, keyPress("j"))
+	m = drain(t, m, keyPress("enter"))
+	if svc.imported != "Firefox (default)" || m.login.screen != loginChoose || !strings.Contains(m.login.err, "no logged-in session") {
+		t.Fatalf("failed import: imported %q login %+v", svc.imported, m.login)
+	}
+	svc.cookieErr = nil
+	m = drain(t, m, keyPress("enter"))
+	if m.login != nil {
+		t.Fatal("successful import should leave the login screen")
 	}
 }

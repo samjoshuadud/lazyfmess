@@ -44,6 +44,8 @@ type LoginService interface {
 	OpenAttachment(path string) error
 	Abort()
 	UseCookies(ctx context.Context, raw string) error
+	Browsers() []string
+	ImportBrowser(ctx context.Context, name string) error
 }
 
 type loginScreen int
@@ -62,15 +64,17 @@ type loginChoice struct {
 }
 
 type loginState struct {
-	screen  loginScreen
-	notice  string
-	err     string
-	choice  int
-	step    LoginStep
-	inputs  []textinput.Model
-	options []int
-	field   int
-	paste   textarea.Model
+	screen   loginScreen
+	notice   string
+	err      string
+	choice   int
+	step     LoginStep
+	inputs   []textinput.Model
+	options  []int
+	field    int
+	paste    textarea.Model
+	browsers []string
+	returnTo loginScreen
 }
 
 type needLoginMsg struct {
@@ -87,11 +91,23 @@ type cookiesUsedMsg struct {
 }
 
 func (m Model) loginChoices() []loginChoice {
-	return []loginChoice{
-		{"Log in with Messenger account", func(m *Model) tea.Cmd { return m.startAccountLogin() }},
-		{"Paste browser cookies", func(m *Model) tea.Cmd { m.openPaste(); return textarea.Blink }},
-		{"Quit", func(*Model) tea.Cmd { return tea.Quit }},
+	choices := []loginChoice{{"Log in with Messenger account", func(m *Model) tea.Cmd { return m.startAccountLogin() }}}
+	for _, name := range m.login.browsers {
+		choices = append(choices, loginChoice{"Import cookies from " + name, func(m *Model) tea.Cmd { return m.importBrowser(name) }})
 	}
+	return append(choices,
+		loginChoice{"Paste browser cookies", func(m *Model) tea.Cmd { m.openPaste(); return textarea.Blink }},
+		loginChoice{"Quit", func(*Model) tea.Cmd { return tea.Quit }},
+	)
+}
+
+func (m *Model) importBrowser(name string) tea.Cmd {
+	m.login.returnTo = loginChoose
+	m.login.screen = loginBusy
+	m.login.err = ""
+	return m.track(func() tea.Msg {
+		return cookiesUsedMsg{err: m.loginService.ImportBrowser(m.ctx, name)}
+	})
 }
 
 func (m *Model) openLogin(reason string) {
@@ -101,6 +117,9 @@ func (m *Model) openLogin(reason string) {
 	}
 	m.popup = nil
 	m.login = &loginState{screen: loginChoose, notice: reason}
+	if m.loginService != nil {
+		m.login.browsers = m.loginService.Browsers()
+	}
 }
 
 func (m *Model) startAccountLogin() tea.Cmd {
@@ -294,6 +313,7 @@ func (m Model) updateLogin(msg tea.Msg) (Model, tea.Cmd) {
 				l.err = "paste the cookie export first"
 				return m, nil
 			}
+			l.returnTo = loginPaste
 			l.screen = loginBusy
 			return m, m.track(func() tea.Msg {
 				return cookiesUsedMsg{err: m.loginService.UseCookies(m.ctx, raw)}

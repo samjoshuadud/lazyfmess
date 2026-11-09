@@ -125,8 +125,38 @@ func (s *sessions) deliver(ctx context.Context, creds *session.Cookies) error {
 
 type loginService struct {
 	sessions *sessions
+	home     string
 	mu       sync.Mutex
 	login    *meta.Login
+	stores   []session.BrowserStore
+}
+
+func (l *loginService) Browsers() []string {
+	stores := session.FindBrowserStores(l.home)
+	l.mu.Lock()
+	l.stores = stores
+	l.mu.Unlock()
+	names := make([]string, len(stores))
+	for i, s := range stores {
+		names[i] = s.Name
+	}
+	return names
+}
+
+func (l *loginService) ImportBrowser(ctx context.Context, name string) error {
+	l.mu.Lock()
+	stores := l.stores
+	l.mu.Unlock()
+	for _, store := range stores {
+		if store.Name == name {
+			creds, err := session.ImportBrowserCookies(ctx, store)
+			if err != nil {
+				return err
+			}
+			return l.sessions.deliver(ctx, creds)
+		}
+	}
+	return fmt.Errorf("browser %q not found", name)
 }
 
 func (l *loginService) StartAccount(ctx context.Context) (ui.LoginStep, error) {

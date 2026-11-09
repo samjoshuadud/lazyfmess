@@ -88,6 +88,7 @@ func run() error {
 		loginReason = fmt.Sprintf("The saved login could not be read: %v", credsErr)
 	}
 
+	home, _ := os.UserHomeDir()
 	var appRef atomic.Pointer[ui.App]
 	clients := newClientHolder()
 	sess := &sessions{
@@ -113,7 +114,7 @@ func run() error {
 			Reactor:  b,
 			Editor:   b,
 			Muter:    b,
-			Login:    &loginService{sessions: sess},
+			Login:    &loginService{sessions: sess, home: home},
 		},
 		ui.Config{
 			PrefillPIN: *pinFlag,

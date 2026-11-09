@@ -53,6 +53,10 @@ func ParseCookies(data []byte) (*Cookies, error) {
 	if err != nil {
 		return nil, err
 	}
+	return cookiesFromFile(file)
+}
+
+func cookiesFromFile(file cookieFile) (*Cookies, error) {
 	switch file.Platform {
 	case "messenger", "facebook", "facebook-tor", "messenger-lite", "messenger-lite-android":
 	default:
@@ -61,8 +65,7 @@ func ParseCookies(data []byte) (*Cookies, error) {
 	if len(file.Cookies) == 0 {
 		return nil, fmt.Errorf("parse cookies: cookie map is empty")
 	}
-	required := []string{"xs", "c_user", "datr"}
-	for _, name := range required {
+	for _, name := range []string{"xs", "c_user", "datr"} {
 		if file.Cookies[name] == "" {
 			return nil, fmt.Errorf("parse cookies: missing required cookie %q", name)
 		}
