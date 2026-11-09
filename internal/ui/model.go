@@ -105,6 +105,7 @@ type Model struct {
 	spinner        spinner.Model
 	inFlight       int
 	connecting     bool
+	refreshQueued  bool
 	popup          *popup
 	composer       textarea.Model
 	pinInput       textinput.Model
@@ -146,6 +147,10 @@ type readMark struct {
 type markReadMsg struct {
 	err error
 }
+
+const refreshDelay = 150 * time.Millisecond
+
+type refreshNowMsg struct{}
 
 type connectedMsg struct {
 	err error
@@ -295,6 +300,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case openPersonMsg:
 		return m.updateSearch(msg)
 	case RefreshMsg:
+		if m.refreshQueued {
+			return m, nil
+		}
+		m.refreshQueued = true
+		return m, tea.Tick(refreshDelay, func(time.Time) tea.Msg { return refreshNowMsg{} })
+	case refreshNowMsg:
+		m.refreshQueued = false
 		if m.selectedID != 0 {
 			return m, tea.Batch(m.loadThreads, m.loadMessages(m.selectedID))
 		}

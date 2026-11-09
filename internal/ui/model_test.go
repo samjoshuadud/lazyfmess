@@ -82,25 +82,26 @@ func TestModelLoadsThreadsAndMessages(t *testing.T) {
 	}
 }
 
-func TestRefreshReloadsThreads(t *testing.T) {
+func TestRefreshBurstReloadsOnce(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
-	s, err := store.Open(ctx, t.TempDir())
-	if err != nil {
-		t.Fatalf("Open: %v", err)
+	m := newTestModel(t, 2, 0)
+	var cmds []tea.Cmd
+	for range 50 {
+		model, cmd := m.Update(RefreshMsg{})
+		m = model.(Model)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
-	defer s.Close()
-	m := New(ctx, s, Services{Sender: stubSender{id: 1}}, Config{})
-	model, cmd := m.Update(RefreshMsg{})
-	m = model.(Model)
-	if cmd == nil {
-		t.Fatal("expected reload command")
+	if len(cmds) != 1 || !m.refreshQueued {
+		t.Fatalf("50 refreshes queued %d reloads", len(cmds))
 	}
-	msg := cmd()
-	model, _ = m.Update(msg)
-	m = model.(Model)
-	if m.status != "0 chats" {
-		t.Fatalf("status: %q", m.status)
+	m.status = ""
+	for _, msg := range runCmd(cmds[0]) {
+		m = drain(t, m, msg)
+	}
+	if m.refreshQueued || m.status != "2 chats · 2 unread" {
+		t.Fatalf("after reload: queued %v status %q", m.refreshQueued, m.status)
 	}
 }
 
