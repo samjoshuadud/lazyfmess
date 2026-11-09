@@ -69,22 +69,7 @@ var (
 )
 
 func newThreadList() list.Model {
-	delegate := list.NewDefaultDelegate()
-	delegate.SetHeight(2)
-	delegate.SetSpacing(0)
-	delegate.Styles.NormalTitle = lipgloss.NewStyle().Foreground(text).Padding(0, 1)
-	delegate.Styles.NormalDesc = lipgloss.NewStyle().Foreground(muted).Padding(0, 1)
-	delegate.Styles.SelectedTitle = lipgloss.NewStyle().
-		Foreground(accent).
-		Bold(true).
-		Padding(0, 1)
-	delegate.Styles.SelectedDesc = lipgloss.NewStyle().
-		Foreground(text).
-		Padding(0, 1)
-	delegate.Styles.DimmedTitle = lipgloss.NewStyle().Foreground(muted).Padding(0, 1)
-	delegate.Styles.DimmedDesc = lipgloss.NewStyle().Foreground(muted).Padding(0, 1)
-
-	threads := list.New(nil, delegate, 0, 0)
+	threads := list.New(nil, threadDelegate{}, 0, 0)
 	threads.Title = "Inbox"
 	threads.Styles.Title = titleStyle.Padding(0, 1)
 	threads.Styles.FilterPrompt = lipgloss.NewStyle().Foreground(accent)

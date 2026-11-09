@@ -58,13 +58,6 @@ type threadItem struct {
 	thread store.Thread
 }
 
-func (t threadItem) Title() string { return t.thread.Title }
-func (t threadItem) Description() string {
-	if t.thread.LastPreview == "" {
-		return " "
-	}
-	return t.thread.LastPreview
-}
 func (t threadItem) FilterValue() string { return t.thread.Title }
 
 type Model struct {

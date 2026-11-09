@@ -63,6 +63,7 @@ func renderMessages(messages []store.Message, width int, selfID int64, mediaFocu
 	var prevSender int64
 	var prevTime time.Time
 	first := true
+	now := time.Now()
 
 	for _, msg := range messages {
 		body := messageBody(msg, msg.ID == mediaFocusID)
@@ -71,8 +72,9 @@ func renderMessages(messages []store.Message, width int, selfID int64, mediaFocu
 		}
 
 		mine := selfID != 0 && msg.SenderID == selfID
+		newDay := first || !sameDay(msg.Timestamp.Local(), prevTime.Local())
 		sameSender := !first && msg.SenderID == prevSender
-		closeInTime := sameSender && !prevTime.IsZero() && msg.Timestamp.Sub(prevTime) < 5*time.Minute
+		closeInTime := sameSender && !newDay && msg.Timestamp.Sub(prevTime) < 5*time.Minute
 		showHeader := !closeInTime
 
 		if !first {
@@ -81,6 +83,10 @@ func renderMessages(messages []store.Message, width int, selfID int64, mediaFocu
 			} else {
 				b.WriteByte('\n')
 			}
+		}
+		if newDay {
+			b.WriteString(daySeparator(dayLabel(msg.Timestamp, now), width))
+			b.WriteString("\n\n")
 		}
 
 		block := renderMessageBlock(msg, body, mine, showHeader, bubbleMax, width)
@@ -97,6 +103,13 @@ func renderMessages(messages []store.Message, width int, selfID int64, mediaFocu
 			Render(statusStyle.Render("No messages yet"))
 	}
 	return b.String()
+}
+
+func daySeparator(label string, width int) string {
+	label = " " + label + " "
+	side := max((width-lipgloss.Width(label))/2, 1)
+	rule := strings.Repeat("─", side)
+	return timeStyle.Render(lipgloss.PlaceHorizontal(width, lipgloss.Center, rule+label+rule))
 }
 
 func messageBody(msg store.Message, mediaFocused bool) string {
