@@ -39,6 +39,11 @@ type keyMap struct {
 
 	Send key.Binding
 
+	Dismiss key.Binding
+	Confirm key.Binding
+	Cancel  key.Binding
+	Select  key.Binding
+
 	Close        key.Binding
 	Unlock       key.Binding
 	Skip         key.Binding
@@ -78,6 +83,11 @@ func newKeyMap() keyMap {
 
 		Send: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "send")),
 
+		Dismiss: key.NewBinding(key.WithKeys("enter", "esc"), key.WithHelp("enter", "dismiss")),
+		Confirm: key.NewBinding(key.WithKeys("enter", "y"), key.WithHelp("enter/y", "confirm")),
+		Cancel:  key.NewBinding(key.WithKeys("esc", "n"), key.WithHelp("esc", "cancel")),
+		Select:  key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "select")),
+
 		Close:        key.NewBinding(key.WithKeys("esc", "?", "q", "enter", " "), key.WithHelp("esc", "close")),
 		Unlock:       key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "unlock")),
 		Skip:         key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "skip")),
@@ -109,6 +119,16 @@ func (k keyMap) sections() [][]keySection {
 
 func (m Model) contextBindings() []key.Binding {
 	k := m.keys
+	if m.popup != nil {
+		switch m.popup.kind {
+		case popupError:
+			return []key.Binding{k.Dismiss}
+		case popupConfirm:
+			return []key.Binding{k.Confirm, k.Cancel}
+		default:
+			return []key.Binding{k.Select, k.Down, k.Up, k.Cancel}
+		}
+	}
 	switch {
 	case m.showPIN:
 		return []key.Binding{k.Unlock, k.Skip}

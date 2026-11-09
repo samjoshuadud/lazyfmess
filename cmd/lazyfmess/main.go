@@ -165,8 +165,13 @@ func run() error {
 	var appRef atomic.Pointer[ui.App]
 	client, err := meta.New(cookies, dir, logWriter, func(evtCtx context.Context, evt meta.Event) {
 		app := appRef.Load()
-		if evt.Err != nil {
+		switch {
+		case evt.Type == "permanent_error" && evt.Err != nil:
+			app.Error(evt.Err.Error())
+		case evt.Err != nil:
 			app.Toast(evt.Err.Error())
+		case evt.Type == "reconnected":
+			app.Toast("reconnected")
 		}
 		if evt.Table == nil {
 			return

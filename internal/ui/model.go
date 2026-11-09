@@ -82,6 +82,7 @@ type Model struct {
 	viewport      viewport.Model
 	spinner       spinner.Model
 	inFlight      int
+	popup         *popup
 	composer      textarea.Model
 	pinInput      textinput.Model
 	searchInput   textinput.Model
@@ -195,11 +196,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		m.refreshViewport()
 		return m, nil
+	case errorMsg:
+		m.showError(msg.text)
+		return m, nil
 	case bootMsg:
 		if msg.err != nil {
-			m.status = msg.err.Error()
+			m.showError(msg.err.Error())
 			m.kickHistorySync()
-			return m.Update(toastMsg{message: msg.err.Error()})
+			return m, nil
 		}
 		if msg.askPIN {
 			m.openPINModal()
@@ -210,7 +214,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case pinResultMsg:
 		if msg.err != nil {
 			m.pinErr = msg.err.Error()
-			m.status = msg.err.Error()
 			m.showPIN = true
 			return m, nil
 		}
@@ -243,7 +246,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 	case threadsLoadedMsg:
 		if msg.err != nil {
-			m.status = msg.err.Error()
+			m.showError(msg.err.Error())
 			return m, nil
 		}
 		selected := m.selectedID
@@ -270,7 +273,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case messagesLoadedMsg:
 		if msg.err != nil {
-			m.status = msg.err.Error()
+			m.showError(msg.err.Error())
 			return m, nil
 		}
 		if msg.threadID != m.selectedID {
@@ -287,7 +290,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case mediaOpenedMsg:
 		if msg.err != nil {
-			m.status = msg.err.Error()
+			m.showError(msg.err.Error())
 			return m, nil
 		}
 		m.status = "opened media"
@@ -297,19 +300,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.err != nil {
-			m.status = msg.err.Error()
-			return m, nil
+			m.status = "history sync failed"
+			return m.Update(toastMsg{message: "history: " + msg.err.Error()})
 		}
 		m.status = "history synced"
 		return m, tea.Batch(m.loadThreads, m.loadMessages(msg.threadID))
 	case sendFinishedMsg:
 		m.status = "sent"
 		if msg.err != nil {
-			m.status = msg.err.Error()
+			m.status = "send failed"
+			m.showError(msg.err.Error())
 		}
 		return m, tea.Batch(m.loadThreads, m.loadMessages(msg.threadID))
 	}
 
+	if m.popup != nil {
+		return m.updatePopup(msg)
+	}
 	if m.showPIN {
 		return m.updatePIN(msg)
 	}
@@ -632,7 +639,7 @@ func (m *Model) queueSend() tea.Cmd {
 	}
 	thread, err := m.store.GetThread(m.ctx, m.selectedID)
 	if err != nil {
-		m.status = fmt.Sprintf("send: %v", err)
+		m.showError(fmt.Sprintf("send: %v", err))
 		return nil
 	}
 	pending := store.Message{
@@ -644,7 +651,7 @@ func (m *Model) queueSend() tea.Cmd {
 		Pending:   true,
 	}
 	if err := m.store.UpsertMessage(m.ctx, pending); err != nil {
-		m.status = fmt.Sprintf("send: %v", err)
+		m.showError(fmt.Sprintf("send: %v", err))
 		return nil
 	}
 	m.composer.Reset()
@@ -722,6 +729,13 @@ func (a *App) Toast(message string) {
 		return
 	}
 	a.program.Send(toastMsg{message: message})
+}
+
+func (a *App) Error(message string) {
+	if a == nil || a.program == nil || strings.TrimSpace(message) == "" {
+		return
+	}
+	a.program.Send(errorMsg{text: message})
 }
 
 func (a *App) Run() error {

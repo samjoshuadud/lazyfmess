@@ -15,16 +15,19 @@ func (m Model) View() string {
 	if !m.ready {
 		return statusStyle.Render("loading")
 	}
-	base := m.renderBase()
+	view := m.renderBase()
 	switch {
 	case m.showPIN:
-		return overlay(base, m.renderPINModal(), m.width, m.height)
+		view = overlay(view, m.renderPINModal(), m.width, m.height)
 	case m.showSearch:
-		return overlay(base, m.renderSearchModal(), m.width, m.height)
+		view = overlay(view, m.renderSearchModal(), m.width, m.height)
 	case m.showHelp:
-		return overlay(base, m.renderHelpModal(), m.width, m.height)
+		view = overlay(view, m.renderHelpModal(), m.width, m.height)
 	}
-	return base
+	if m.popup != nil {
+		view = overlay(view, m.renderPopup(), m.width, m.height)
+	}
+	return view
 }
 
 func (m Model) renderBase() string {
@@ -56,9 +59,6 @@ func (m Model) renderStatusBar() string {
 	if m.toast != "" {
 		text = m.toast
 		style = toastStyle
-	}
-	if strings.Contains(strings.ToLower(text), "error") || strings.Contains(strings.ToLower(text), "fail") {
-		style = errorStatusStyle
 	}
 	right := ansi.Truncate(text, m.width/2, "…")
 	if m.inFlight > 0 {

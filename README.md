@@ -96,6 +96,8 @@ Controls follow common lazy-style TUI navigation:
 - `?` shows every key binding; the bottom bar shows the keys for the focused panel
 - `q` quits (Esc goes back a pane)
 
+Errors open in a popup over the interface; Enter or Esc dismisses it. Short notices such as reconnects appear briefly in the bottom bar.
+
 Images and videos stay as placeholders in chat. Opening them downloads to a temporary file, launches the desktop opener, then deletes the file once the viewer releases it or when lazyfmess exits.
 
 ## License
