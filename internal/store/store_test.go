@@ -236,3 +236,40 @@ func TestReplyResolvesFromLocalMessage(t *testing.T) {
 		t.Errorf("original should have no reply: %+v", got[0])
 	}
 }
+
+func TestReactions(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, err := Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	if err := s.EnsureThread(ctx, 1); err != nil {
+		t.Fatalf("EnsureThread: %v", err)
+	}
+	if err := s.UpsertMessage(ctx, Message{ID: "m1", ThreadID: 1, SenderID: 2, Text: "hi", Timestamp: time.UnixMilli(1)}); err != nil {
+		t.Fatalf("UpsertMessage: %v", err)
+	}
+	steps := []struct {
+		r    Reaction
+		want string
+	}{
+		{Reaction{"m1", 2, "👍"}, "[{m1 2 👍}]"},
+		{Reaction{"m1", 3, "❤"}, "[{m1 2 👍} {m1 3 ❤}]"},
+		{Reaction{"m1", 2, "😆"}, "[{m1 2 😆} {m1 3 ❤}]"},
+		{Reaction{"m1", 3, ""}, "[{m1 2 😆}]"},
+	}
+	for _, step := range steps {
+		if err := s.SetReaction(ctx, step.r); err != nil {
+			t.Fatalf("SetReaction: %v", err)
+		}
+		msgs, err := s.ListMessages(ctx, 1)
+		if err != nil {
+			t.Fatalf("ListMessages: %v", err)
+		}
+		if got := fmt.Sprint(msgs[0].Reactions); got != step.want {
+			t.Fatalf("after %+v: %s, want %s", step.r, got, step.want)
+		}
+	}
+}

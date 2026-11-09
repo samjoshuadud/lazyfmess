@@ -109,7 +109,10 @@ func (m *Model) startReply(msg store.Message) {
 func (m Model) messageActions(msg store.Message) []menuItem {
 	var items []menuItem
 	if !msg.Pending && msg.Error == "" {
-		items = append(items, menuItem{"Reply", func(m *Model) tea.Cmd { m.startReply(msg); return nil }})
+		items = append(items,
+			menuItem{"Reply", func(m *Model) tea.Cmd { m.startReply(msg); return nil }},
+			menuItem{"React", func(m *Model) tea.Cmd { m.openReactionMenu(msg); return nil }},
+		)
 	}
 	if hasMedia(msg) {
 		items = append(items, menuItem{"Open " + mediaPlaceholder(msg), func(m *Model) tea.Cmd { return m.track(m.openMedia(msg)) }})

@@ -61,6 +61,7 @@ type Services struct {
 	Media    MediaOpener
 	Reader   ReadMarker
 	Typing   TypingNotifier
+	Reactor  Reactor
 }
 
 type Config struct {
@@ -83,6 +84,7 @@ type Model struct {
 	media          MediaOpener
 	reader         ReadMarker
 	typingNotifier TypingNotifier
+	reactor        Reactor
 	typing         map[int64]map[int64]time.Time
 	typingThread   int64
 	typingSentAt   time.Time
@@ -160,6 +162,7 @@ func New(ctx context.Context, s *store.Store, svc Services, cfg Config) Model {
 		media:          svc.Media,
 		reader:         svc.Reader,
 		typingNotifier: svc.Typing,
+		reactor:        svc.Reactor,
 		typing:         make(map[int64]map[int64]time.Time),
 		onReady:        cfg.OnReady,
 		prefillPIN:     strings.TrimSpace(cfg.PrefillPIN),
@@ -330,6 +333,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "typing indicator failed"
 		}
 		return m, nil
+	case reactedMsg:
+		if msg.err != nil {
+			m.showError("react: " + msg.err.Error())
+			return m, nil
+		}
+		return m, m.loadMessages(msg.threadID)
 	case markReadMsg:
 		if msg.err != nil {
 			return m.Update(toastMsg{message: "mark read: " + msg.err.Error()})
@@ -524,6 +533,10 @@ func (m Model) updateMessages(msg tea.Msg) (Model, tea.Cmd) {
 	case key.Matches(k, keys.OpenMedia):
 		msg, _ := m.cursorMessage()
 		return m, m.track(m.openMedia(msg))
+	case key.Matches(k, keys.React):
+		if msg, ok := m.cursorMessage(); ok {
+			m.openReactionMenu(msg)
+		}
 	case key.Matches(k, keys.Reply):
 		if msg, ok := m.cursorMessage(); ok {
 			m.startReply(msg)

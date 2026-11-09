@@ -13,6 +13,15 @@ import (
 	"lazyfmess/internal/store"
 )
 
+type Event struct {
+	Type     string
+	Table    *table.LSTable
+	Err      error
+	live     *liveMessage
+	reaction *store.Reaction
+	typing   []Typing
+}
+
 type liveMessage struct {
 	message    store.Message
 	threadType table.ThreadType
@@ -27,6 +36,8 @@ func (c *Client) onE2EEEvent(ctx context.Context, evt any) {
 	case *events.FBMessage:
 		if live, ok := decodeLiveMessage(e); ok {
 			c.handler(ctx, Event{Type: "e2ee_message", live: &live})
+		} else if reaction, ok := decodeLiveReaction(e); ok {
+			c.handler(ctx, Event{Type: "e2ee_reaction", reaction: &reaction})
 		}
 	case *events.ChatPresence:
 		if typing, ok := decodeChatPresence(e); ok {
@@ -78,6 +89,8 @@ func ApplyEvent(ctx context.Context, s *store.Store, evt Event) (bool, error) {
 		return true, ApplyTable(ctx, s, evt.Table)
 	case evt.live != nil:
 		return true, applyLiveMessage(ctx, s, *evt.live)
+	case evt.reaction != nil:
+		return true, s.SetReaction(ctx, *evt.reaction)
 	}
 	return false, nil
 }

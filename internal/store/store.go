@@ -44,6 +44,13 @@ type Message struct {
 	ReplyText       string
 	ReplySenderID   int64
 	ReplySenderName string
+	Reactions       []Reaction
+}
+
+type Reaction struct {
+	MessageID string
+	ActorID   int64
+	Emoji     string
 }
 
 type Store struct {
@@ -104,6 +111,12 @@ CREATE TABLE IF NOT EXISTS hybrid_threads (
 	fb_key INTEGER PRIMARY KEY,
 	jid INTEGER NOT NULL,
 	thread_type INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS reactions (
+	message_id TEXT NOT NULL,
+	actor_id INTEGER NOT NULL,
+	emoji TEXT NOT NULL,
+	PRIMARY KEY (message_id, actor_id)
 );
 CREATE INDEX IF NOT EXISTS messages_thread_ts ON messages(thread_id, timestamp_ms);
 `
@@ -363,7 +376,57 @@ ORDER BY m.timestamp_ms ASC, m.id ASC
 		m.Pending = pending != 0
 		out = append(out, m)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list messages: %w", err)
+	}
+	return out, s.attachReactions(ctx, threadID, out)
+}
+
+func (s *Store) attachReactions(ctx context.Context, threadID int64, messages []Message) error {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT r.message_id, r.actor_id, r.emoji
+FROM reactions r
+JOIN messages m ON m.id = r.message_id
+WHERE m.thread_id = ?
+ORDER BY r.rowid
+`, threadID)
+	if err != nil {
+		return fmt.Errorf("list reactions: %w", err)
+	}
+	defer rows.Close()
+	index := make(map[string]int, len(messages))
+	for i, m := range messages {
+		index[m.ID] = i
+	}
+	for rows.Next() {
+		var r Reaction
+		if err := rows.Scan(&r.MessageID, &r.ActorID, &r.Emoji); err != nil {
+			return fmt.Errorf("scan reaction: %w", err)
+		}
+		if i, ok := index[r.MessageID]; ok {
+			messages[i].Reactions = append(messages[i].Reactions, r)
+		}
+	}
+	return rows.Err()
+}
+
+func (s *Store) SetReaction(ctx context.Context, r Reaction) error {
+	if r.MessageID == "" || r.ActorID == 0 {
+		return nil
+	}
+	var err error
+	if r.Emoji == "" {
+		_, err = s.db.ExecContext(ctx, `DELETE FROM reactions WHERE message_id = ? AND actor_id = ?`, r.MessageID, r.ActorID)
+	} else {
+		_, err = s.db.ExecContext(ctx, `
+INSERT INTO reactions (message_id, actor_id, emoji) VALUES (?, ?, ?)
+ON CONFLICT(message_id, actor_id) DO UPDATE SET emoji=excluded.emoji
+`, r.MessageID, r.ActorID, r.Emoji)
+	}
+	if err != nil {
+		return fmt.Errorf("set reaction: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) ThreadCount(ctx context.Context) (int, error) {

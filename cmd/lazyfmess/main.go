@@ -110,6 +110,15 @@ func (t typingAdapter) SetTyping(ctx context.Context, thread store.Thread, activ
 	return t.client.SetTyping(ctx, thread, active)
 }
 
+type reactAdapter struct {
+	client *meta.Client
+	store  *store.Store
+}
+
+func (r reactAdapter) React(ctx context.Context, thread store.Thread, msg store.Message, emoji string) error {
+	return r.client.React(ctx, r.store, thread, msg, emoji)
+}
+
 type searchAdapter struct {
 	client *meta.Client
 	store  *store.Store
@@ -229,6 +238,7 @@ func run() error {
 			Media:    mediaAdapter{client: client},
 			Reader:   readAdapter{client: client, store: db},
 			Typing:   typingAdapter{client: client},
+			Reactor:  reactAdapter{client: client, store: db},
 		},
 		ui.Config{
 			PrefillPIN: *pinFlag,

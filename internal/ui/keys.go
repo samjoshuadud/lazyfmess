@@ -39,6 +39,7 @@ type keyMap struct {
 	Actions   key.Binding
 	Copy      key.Binding
 	Reply     key.Binding
+	React     key.Binding
 
 	Send    key.Binding
 	Newline key.Binding
@@ -88,6 +89,7 @@ func newKeyMap() keyMap {
 		Actions:   key.NewBinding(key.WithKeys("enter", "x"), key.WithHelp("enter/x", "actions")),
 		Copy:      key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy text")),
 		Reply:     key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reply")),
+		React:     key.NewBinding(key.WithKeys("+"), key.WithHelp("+", "react")),
 
 		Send:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "send")),
 		Newline: key.NewBinding(key.WithKeys("alt+enter", "ctrl+j"), key.WithHelp("alt+enter", "newline")),
@@ -122,7 +124,7 @@ func (k keyMap) sections() [][]keySection {
 			{"Compose", []key.Binding{k.Send, k.Newline, k.Editor, k.Back}},
 		},
 		{
-			{"Messages", []key.Binding{k.Down, k.Up, k.Top, k.Bottom, k.HalfDown, k.HalfUp, k.Actions, k.Reply, k.Copy, k.NextMedia, k.PrevMedia, k.OpenMedia}},
+			{"Messages", []key.Binding{k.Down, k.Up, k.Top, k.Bottom, k.HalfDown, k.HalfUp, k.Actions, k.Reply, k.React, k.Copy, k.NextMedia, k.PrevMedia, k.OpenMedia}},
 		},
 	}
 }
@@ -151,7 +153,7 @@ func (m Model) contextBindings() []key.Binding {
 	case focusList:
 		return []key.Binding{k.OpenChat, k.Filter, k.People, k.Compose, k.NextPane, k.Help, k.Quit}
 	case focusMessages:
-		return []key.Binding{k.Actions, k.Reply, k.Copy, k.OpenMedia, k.Compose, k.Help, k.Quit}
+		return []key.Binding{k.Actions, k.Reply, k.React, k.Copy, k.OpenMedia, k.Compose, k.Help, k.Quit}
 	default:
 		return []key.Binding{k.Send, k.Newline, k.Editor, k.Back}
 	}

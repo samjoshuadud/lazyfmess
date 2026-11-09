@@ -54,7 +54,7 @@ func TestActionMenuForMediaMessage(t *testing.T) {
 	for _, item := range m.popup.items {
 		labels = append(labels, item.label)
 	}
-	if got := strings.Join(labels, ","); got != "Reply,Open [image],Copy text" {
+	if got := strings.Join(labels, ","); got != "Reply,React,Open [image],Copy text" {
 		t.Fatalf("menu items: %s", got)
 	}
 }

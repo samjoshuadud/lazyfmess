@@ -47,6 +47,9 @@ func ApplyTable(ctx context.Context, s *store.Store, tbl *table.LSTable) error {
 			return err
 		}
 	}
+	if err := applyReactions(ctx, s, tbl); err != nil {
+		return err
+	}
 	return applyReadMarks(ctx, s, tbl)
 }
 

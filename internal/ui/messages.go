@@ -213,6 +213,9 @@ func renderMessageBlock(msg store.Message, body, quote string, mine, showHeader 
 	for _, line := range wrapWords(body, bubbleMax) {
 		parts = append(parts, bodyStyle.Render(line))
 	}
+	if summary := reactionSummary(msg.Reactions); summary != "" {
+		parts = append(parts, timeStyle.Render(ansi.Truncate(summary, bubbleMax, "…")))
+	}
 	block := strings.Join(parts, "\n")
 	return lipgloss.NewStyle().
 		Width(paneWidth - 1).

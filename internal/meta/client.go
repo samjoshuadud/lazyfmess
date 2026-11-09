@@ -25,14 +25,6 @@ import (
 
 type EventHandler func(ctx context.Context, evt Event)
 
-type Event struct {
-	Type   string
-	Table  *table.LSTable
-	Err    error
-	live   *liveMessage
-	typing []Typing
-}
-
 type Client struct {
 	mx            *messagix.Client
 	handler       EventHandler

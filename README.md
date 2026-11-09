@@ -89,6 +89,7 @@ Controls follow common lazy-style TUI navigation:
 - `enter` opens a chat, opens the action menu for the selected message, or sends from the composer
 - `x` opens the action menu for the selected message
 - `r` replies to the selected message; Esc in the composer cancels the reply
+- `+` reacts to the selected message; choosing your current reaction removes it
 - `y` copies the selected message text through the terminal clipboard (OSC 52)
 - `i` / `a` / `c` focuses the composer
 - `1` / `2` / `3` jump to the chats, messages, or compose panel

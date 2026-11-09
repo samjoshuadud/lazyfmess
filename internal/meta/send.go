@@ -83,17 +83,11 @@ func (c *Client) sendE2EEText(ctx context.Context, thread store.Thread, text str
 	otid := methods.GenerateEpochID()
 	msgID := strconv.FormatInt(otid, 10)
 	chat := chatJID(thread)
-	payload := &waConsumerApplication.ConsumerApplication{
-		Payload: &waConsumerApplication.ConsumerApplication_Payload{
-			Payload: &waConsumerApplication.ConsumerApplication_Payload_Content{
-				Content: &waConsumerApplication.ConsumerApplication_Content{
-					Content: &waConsumerApplication.ConsumerApplication_Content_MessageText{
-						MessageText: &waCommon.MessageText{Text: proto.String(text)},
-					},
-				},
-			},
+	payload := consumerContent(&waConsumerApplication.ConsumerApplication_Content{
+		Content: &waConsumerApplication.ConsumerApplication_Content_MessageText{
+			MessageText: &waCommon.MessageText{Text: proto.String(text)},
 		},
-	}
+	})
 	var metadata *waMsgApplication.MessageApplication_Metadata
 	if replyTo.ID != "" {
 		participant := types.JID{User: strconv.FormatInt(replyTo.SenderID, 10), Server: types.MessengerServer}
