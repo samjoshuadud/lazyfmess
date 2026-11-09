@@ -15,6 +15,9 @@ func (m Model) View() string {
 	if !m.ready {
 		return statusStyle.Render("loading")
 	}
+	if m.login != nil {
+		return m.renderLogin()
+	}
 	view := m.renderBase()
 	switch {
 	case m.showPIN:

@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -49,142 +50,6 @@ func main() {
 	}
 }
 
-type senderAdapter struct {
-	client *meta.Client
-}
-
-func (s senderAdapter) AccountID() int64 {
-	return s.client.AccountID()
-}
-
-func (s senderAdapter) SendText(ctx context.Context, thread store.Thread, text string, replyTo store.Message) (ui.SendResult, error) {
-	result, err := s.client.SendText(ctx, thread, text, replyTo)
-	if err != nil {
-		return ui.SendResult{}, err
-	}
-	return ui.SendResult{MessageID: result.MessageID, Timestamp: result.Timestamp}, nil
-}
-
-func (s senderAdapter) SendFile(ctx context.Context, thread store.Thread, path string) (ui.SendResult, error) {
-	result, err := s.client.SendFile(ctx, thread, path)
-	if err != nil {
-		return ui.SendResult{}, err
-	}
-	return ui.SendResult{MessageID: result.MessageID, Timestamp: result.Timestamp}, nil
-}
-
-type historyAdapter struct {
-	client *meta.Client
-	store  *store.Store
-}
-
-func (h historyAdapter) LoadHistory(ctx context.Context, thread store.Thread) error {
-	return h.client.SyncThreadHistory(ctx, h.store, thread)
-}
-
-type unlockAdapter struct {
-	client *meta.Client
-}
-
-func (u unlockAdapter) NeedsPIN(ctx context.Context) (bool, error) {
-	return u.client.NeedsHistoryPIN(ctx)
-}
-
-func (u unlockAdapter) Unlock(ctx context.Context, pin string) error {
-	return u.client.UnlockHistory(ctx, pin)
-}
-
-type mediaAdapter struct {
-	client *meta.Client
-}
-
-func (m mediaAdapter) OpenMedia(ctx context.Context, msg store.Message) error {
-	return m.client.OpenMedia(ctx, msg)
-}
-
-type readAdapter struct {
-	client *meta.Client
-	store  *store.Store
-}
-
-func (r readAdapter) MarkRead(ctx context.Context, thread store.Thread) error {
-	return r.client.MarkRead(ctx, r.store, thread)
-}
-
-type typingAdapter struct {
-	client *meta.Client
-}
-
-func (t typingAdapter) SetTyping(ctx context.Context, thread store.Thread, active bool) error {
-	return t.client.SetTyping(ctx, thread, active)
-}
-
-type reactAdapter struct {
-	client *meta.Client
-	store  *store.Store
-}
-
-func (r reactAdapter) React(ctx context.Context, thread store.Thread, msg store.Message, emoji string) error {
-	return r.client.React(ctx, r.store, thread, msg, emoji)
-}
-
-type editAdapter struct {
-	client *meta.Client
-	store  *store.Store
-}
-
-func (e editAdapter) Edit(ctx context.Context, thread store.Thread, msg store.Message, text string) error {
-	return e.client.Edit(ctx, e.store, thread, msg, text)
-}
-
-func (e editAdapter) Unsend(ctx context.Context, thread store.Thread, msg store.Message) error {
-	return e.client.Unsend(ctx, e.store, thread, msg)
-}
-
-type muteAdapter struct {
-	client *meta.Client
-	store  *store.Store
-}
-
-func (m muteAdapter) SetMuted(ctx context.Context, thread store.Thread, muted bool) error {
-	return m.client.SetMuted(ctx, m.store, thread, muted)
-}
-
-type searchAdapter struct {
-	client *meta.Client
-	store  *store.Store
-}
-
-func (s searchAdapter) SearchPeople(ctx context.Context, query string) ([]ui.PersonHit, error) {
-	people, err := s.client.SearchPeople(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-	hits := make([]ui.PersonHit, 0, len(people))
-	for _, person := range people {
-		hits = append(hits, ui.PersonHit{
-			ID:         person.ID,
-			Name:       person.Name,
-			Context:    person.Context,
-			ThreadType: person.ThreadType,
-		})
-	}
-	return hits, nil
-}
-
-func (s searchAdapter) OpenPerson(ctx context.Context, person ui.PersonHit) (int64, error) {
-	thread, err := s.client.OpenPerson(ctx, s.store, meta.Person{
-		ID:         person.ID,
-		Name:       person.Name,
-		Context:    person.Context,
-		ThreadType: person.ThreadType,
-	})
-	if err != nil {
-		return 0, err
-	}
-	return thread.ID, nil
-}
-
 func run() error {
 	dataDirFlag := flag.String("data-dir", "", "directory for session and database files")
 	verbose := flag.Bool("verbose", false, "enable trace-level protocol logs in the log file")
@@ -208,83 +73,71 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	cookies, err := session.LoadCookies(dir)
-	if err != nil {
-		return err
-	}
-
 	db, err := store.Open(ctx, dir)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 
-	var appRef atomic.Pointer[ui.App]
-	client, err := meta.New(cookies, dir, logWriter, func(evtCtx context.Context, evt meta.Event) {
-		app := appRef.Load()
-		switch {
-		case evt.Type == "permanent_error" && evt.Err != nil:
-			app.Error(evt.Err.Error())
-		case evt.Err != nil:
-			app.Toast(evt.Err.Error())
-		case evt.Type == "reconnected":
-			app.Toast("reconnected")
-		}
-		changed, err := meta.ApplyEvent(evtCtx, db, evt)
-		if err != nil {
-			log.Error().Err(err).Str("event", evt.Type).Msg("apply event")
-			return
-		}
-		if changed {
-			app.Notify()
-		}
-		typing, err := meta.TypingFromEvent(evtCtx, db, evt)
-		if err != nil {
-			log.Error().Err(err).Str("event", evt.Type).Msg("read typing event")
-		}
-		for _, t := range typing {
-			app.Typing(t.ThreadID, t.SenderID, t.Active)
-		}
-	})
-	if err != nil {
-		return err
+	creds, credsErr := session.LoadCookies(dir)
+	loginReason := ""
+	switch {
+	case errors.Is(credsErr, fs.ErrNotExist):
+		loginReason = "No saved login yet."
+	case credsErr != nil:
+		loginReason = fmt.Sprintf("The saved login could not be read: %v", credsErr)
 	}
-	defer client.Disconnect()
 
+	var appRef atomic.Pointer[ui.App]
+	clients := newClientHolder()
+	sess := &sessions{
+		dir:       dir,
+		logWriter: logWriter,
+		db:        db,
+		clients:   clients,
+		app:       &appRef,
+		creds:     make(chan *session.Cookies, 1),
+	}
+	b := backend{clients: clients, db: db}
 	app := ui.NewApp(
 		ctx,
 		db,
 		ui.Services{
-			Sender:   senderAdapter{client: client},
-			History:  historyAdapter{client: client, store: db},
-			Unlocker: unlockAdapter{client: client},
-			Searcher: searchAdapter{client: client, store: db},
-			Media:    mediaAdapter{client: client},
-			Reader:   readAdapter{client: client, store: db},
-			Typing:   typingAdapter{client: client},
-			Reactor:  reactAdapter{client: client, store: db},
-			Editor:   editAdapter{client: client, store: db},
-			Muter:    muteAdapter{client: client, store: db},
+			Sender:   b,
+			History:  b,
+			Unlocker: b,
+			Searcher: b,
+			Media:    b,
+			Reader:   b,
+			Typing:   b,
+			Reactor:  b,
+			Editor:   b,
+			Muter:    b,
+			Login:    &loginService{sessions: sess},
 		},
 		ui.Config{
 			PrefillPIN: *pinFlag,
-			Connecting: true,
+			Connecting: creds != nil,
 			BackgroundSync: func(ctx context.Context) error {
+				client, err := clients.wait(ctx)
+				if err != nil {
+					return err
+				}
 				return syncHistoryBackground(ctx, client, db, appRef.Load())
 			},
 		},
 	)
 	appRef.Store(app)
 
-	connectCtx, cancelConnect := context.WithCancel(ctx)
-	connected := make(chan struct{})
+	sessionCtx, cancelSessions := context.WithCancel(ctx)
+	done := make(chan struct{})
 	go func() {
-		defer close(connected)
-		app.Connected(connect(connectCtx, client, db))
+		defer close(done)
+		sess.run(sessionCtx, creds, loginReason)
 	}()
 	err = app.Run()
-	cancelConnect()
-	<-connected
+	cancelSessions()
+	<-done
 	return err
 }
 

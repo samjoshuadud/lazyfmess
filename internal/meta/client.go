@@ -342,6 +342,10 @@ func (c *Client) persistStateLoop(ctx context.Context) {
 	}
 }
 
+func IsLoggedOut(err error) bool {
+	return errors.Is(err, httpclient.ErrTokenInvalidated)
+}
+
 func mapConnectError(err error) error {
 	switch {
 	case errors.Is(err, httpclient.ErrTokenInvalidated):

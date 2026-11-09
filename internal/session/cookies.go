@@ -41,11 +41,14 @@ func CookiesPath(dataDir string) string {
 }
 
 func LoadCookies(dataDir string) (*Cookies, error) {
-	path := CookiesPath(dataDir)
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(CookiesPath(dataDir))
 	if err != nil {
 		return nil, fmt.Errorf("read cookies: %w", err)
 	}
+	return ParseCookies(data)
+}
+
+func ParseCookies(data []byte) (*Cookies, error) {
 	file, err := parseCookieFile(data)
 	if err != nil {
 		return nil, err

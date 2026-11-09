@@ -49,6 +49,12 @@ type keyMap struct {
 	Newline key.Binding
 	Editor  key.Binding
 
+	FieldNext  key.Binding
+	FieldPrev  key.Binding
+	OptionNext key.Binding
+	OptionPrev key.Binding
+	OpenImage  key.Binding
+
 	Dismiss key.Binding
 	Confirm key.Binding
 	Cancel  key.Binding
@@ -103,6 +109,12 @@ func newKeyMap() keyMap {
 		Newline: key.NewBinding(key.WithKeys("alt+enter", "ctrl+j"), key.WithHelp("alt+enter", "newline")),
 		Editor:  key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "edit in $EDITOR")),
 
+		FieldNext:  key.NewBinding(key.WithKeys("tab", "down"), key.WithHelp("tab", "next field")),
+		FieldPrev:  key.NewBinding(key.WithKeys("shift+tab", "up"), key.WithHelp("shift+tab", "previous field")),
+		OptionNext: key.NewBinding(key.WithKeys("right"), key.WithHelp("←/→", "change option")),
+		OptionPrev: key.NewBinding(key.WithKeys("left"), key.WithHelp("←/→", "change option")),
+		OpenImage:  key.NewBinding(key.WithKeys("ctrl+o"), key.WithHelp("ctrl+o", "open image")),
+
 		Dismiss: key.NewBinding(key.WithKeys("enter", "esc"), key.WithHelp("enter", "dismiss")),
 		Confirm: key.NewBinding(key.WithKeys("enter", "y"), key.WithHelp("enter/y", "confirm")),
 		Cancel:  key.NewBinding(key.WithKeys("esc", "n"), key.WithHelp("esc", "cancel")),
@@ -139,6 +151,24 @@ func (k keyMap) sections() [][]keySection {
 
 func (m Model) contextBindings() []key.Binding {
 	k := m.keys
+	if m.login != nil {
+		switch m.login.screen {
+		case loginChoose:
+			return []key.Binding{k.Select, k.Down, k.Up, k.Quit}
+		case loginForm:
+			bindings := []key.Binding{withDesc(k.Select, "continue"), k.FieldNext, k.OptionNext}
+			if m.login.step.Attachment != "" {
+				bindings = append(bindings, k.OpenImage)
+			}
+			return append(bindings, withDesc(k.Back, "start over"))
+		case loginWaiting:
+			return []key.Binding{withDesc(k.Back, "cancel")}
+		case loginPaste:
+			return []key.Binding{withDesc(k.Select, "use cookies"), k.Newline, k.Back}
+		default:
+			return []key.Binding{k.ForceQuit}
+		}
+	}
 	if m.popup != nil {
 		switch m.popup.kind {
 		case popupError:
@@ -167,6 +197,11 @@ func (m Model) contextBindings() []key.Binding {
 	default:
 		return []key.Binding{k.Send, k.Newline, k.Editor, k.Back}
 	}
+}
+
+func withDesc(b key.Binding, desc string) key.Binding {
+	b.SetHelp(b.Help().Key, desc)
+	return b
 }
 
 func renderHints(bindings []key.Binding, width int) string {

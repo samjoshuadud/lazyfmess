@@ -67,6 +67,7 @@ type Services struct {
 	Reactor  Reactor
 	Editor   MessageEditor
 	Muter    Muter
+	Login    LoginService
 }
 
 type Config struct {
@@ -93,6 +94,8 @@ type Model struct {
 	reactor        Reactor
 	messageEditor  MessageEditor
 	muter          Muter
+	loginService   LoginService
+	login          *loginState
 	typing         map[int64]map[int64]time.Time
 	typingThread   int64
 	typingSentAt   time.Time
@@ -192,6 +195,7 @@ func New(ctx context.Context, s *store.Store, svc Services, cfg Config) Model {
 		reactor:        svc.Reactor,
 		messageEditor:  svc.Editor,
 		muter:          svc.Muter,
+		loginService:   svc.Login,
 		typing:         make(map[int64]map[int64]time.Time),
 		backgroundSync: cfg.BackgroundSync,
 		historyLoading: make(map[int64]bool),
@@ -270,6 +274,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		m.refreshViewport()
 		return m, nil
+	case needLoginMsg:
+		m.openLogin(msg.reason)
+		return m, nil
+	case loginStepMsg:
+		return m, m.applyLoginStep(msg)
+	case cookiesUsedMsg:
+		if m.login == nil {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.login.screen = loginPaste
+			m.login.err = msg.err.Error()
+			return m, nil
+		}
+		return m, m.finishLogin()
 	case connectedMsg:
 		m.connecting = false
 		m.inFlight--
@@ -431,7 +450,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.composer.SetValue(msg.text)
 		return m, nil
 	case tea.MouseMsg:
-		if m.popup != nil || m.showPIN || m.showSearch || m.showHelp {
+		if m.login != nil || m.popup != nil || m.showPIN || m.showSearch || m.showHelp {
 			return m, nil
 		}
 		return m.handleMouse(msg)
@@ -462,6 +481,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.loadThreads, m.loadMessages(msg.threadID))
 	}
 
+	if m.login != nil {
+		return m.updateLogin(msg)
+	}
 	if m.popup != nil {
 		return m.updatePopup(msg)
 	}
@@ -927,6 +949,13 @@ func (a *App) Toast(message string) {
 		return
 	}
 	a.program.Send(toastMsg{message: message})
+}
+
+func (a *App) NeedLogin(reason string) {
+	if a == nil || a.program == nil {
+		return
+	}
+	a.program.Send(needLoginMsg{reason: reason})
 }
 
 func (a *App) Connected(err error) {

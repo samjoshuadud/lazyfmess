@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -240,6 +241,9 @@ func runCmd(cmd tea.Cmd) []tea.Msg {
 		return nil
 	}
 	if _, ok := msg.(tea.QuitMsg); ok {
+		return nil
+	}
+	if _, ok := msg.(spinner.TickMsg); ok {
 		return nil
 	}
 	return []tea.Msg{msg}
