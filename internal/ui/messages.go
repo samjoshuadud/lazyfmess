@@ -105,11 +105,7 @@ func renderMessages(messages []store.Message, width int, selfID int64, cursorID 
 		prevTime = msg.Timestamp
 	}
 	if len(out.order) == 0 {
-		out.content = lipgloss.NewStyle().
-			Width(width).
-			PaddingLeft(chatSidePad).
-			PaddingRight(chatSidePad).
-			Render(statusStyle.Render("No messages yet"))
+		out.content = chatPlaceholder("No messages yet", width)
 		return out
 	}
 	out.content = strings.Join(rows, "\n")
@@ -138,6 +134,14 @@ func seenStatus(messages []store.Message, selfID int64, readMarks []time.Time) (
 		}
 	}
 	return "", ""
+}
+
+func chatPlaceholder(text string, width int) string {
+	return lipgloss.NewStyle().
+		Width(width).
+		PaddingLeft(chatSidePad).
+		PaddingRight(chatSidePad).
+		Render(statusStyle.Render(text))
 }
 
 func messageFooter(msg store.Message, status string) string {

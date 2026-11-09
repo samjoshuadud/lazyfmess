@@ -23,6 +23,9 @@ func (m *Model) refreshViewport() {
 		cursor = m.cursorID
 	}
 	chat := renderMessages(m.messages, m.viewport.Width, m.selfAccountID(), cursor, m.readMarks)
+	if len(chat.order) == 0 && (m.historyLoading[m.selectedID] || m.loading()) {
+		chat.content = chatPlaceholder("Loading messages…", m.viewport.Width)
+	}
 	m.viewport.SetContent(chat.content)
 	m.spans = chat.spans
 	m.order = chat.order

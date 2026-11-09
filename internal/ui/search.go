@@ -99,7 +99,7 @@ func (m Model) updateSearch(msg tea.Msg) (Model, tea.Cmd) {
 		m.status = "opened chat"
 		cmds := []tea.Cmd{m.loadThreads, m.loadMessages(msg.threadID)}
 		if thread, err := m.store.GetThread(m.ctx, msg.threadID); err == nil {
-			cmds = append(cmds, m.track(m.fetchHistory(thread)))
+			cmds = append(cmds, m.fetchHistory(thread))
 		}
 		return m, tea.Batch(cmds...)
 	case tea.KeyMsg:

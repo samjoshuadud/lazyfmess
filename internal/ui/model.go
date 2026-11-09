@@ -70,9 +70,9 @@ type Services struct {
 }
 
 type Config struct {
-	PrefillPIN string
-	Connecting bool
-	OnReady    func()
+	PrefillPIN     string
+	Connecting     bool
+	BackgroundSync func(ctx context.Context) error
 }
 
 type threadItem struct {
@@ -96,7 +96,10 @@ type Model struct {
 	typing         map[int64]map[int64]time.Time
 	typingThread   int64
 	typingSentAt   time.Time
-	onReady        func()
+	backgroundSync func(context.Context) error
+	syncing        bool
+	threadsLoaded  bool
+	historyLoading map[int64]bool
 	prefillPIN     string
 	ctx            context.Context
 	keys           keyMap
@@ -152,6 +155,10 @@ const refreshDelay = 150 * time.Millisecond
 
 type refreshNowMsg struct{}
 
+type backgroundSyncMsg struct {
+	err error
+}
+
 type connectedMsg struct {
 	err error
 }
@@ -186,7 +193,8 @@ func New(ctx context.Context, s *store.Store, svc Services, cfg Config) Model {
 		messageEditor:  svc.Editor,
 		muter:          svc.Muter,
 		typing:         make(map[int64]map[int64]time.Time),
-		onReady:        cfg.OnReady,
+		backgroundSync: cfg.BackgroundSync,
+		historyLoading: make(map[int64]bool),
 		prefillPIN:     strings.TrimSpace(cfg.PrefillPIN),
 		ctx:            ctx,
 		keys:           newKeyMap(),
@@ -232,11 +240,15 @@ func (m Model) boot() tea.Msg {
 	return bootMsg{askPIN: needs}
 }
 
-func (m *Model) kickHistorySync() {
-	if m.onReady != nil {
-		m.onReady()
-		m.onReady = nil
+func (m *Model) kickHistorySync() tea.Cmd {
+	sync := m.backgroundSync
+	if sync == nil {
+		return nil
 	}
+	m.backgroundSync = nil
+	m.syncing = true
+	m.refreshViewport()
+	return m.track(func() tea.Msg { return backgroundSyncMsg{err: sync(m.ctx)} })
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -261,26 +273,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case connectedMsg:
 		m.connecting = false
 		m.inFlight--
+		m.refreshViewport()
 		if msg.err != nil {
 			m.showError("Could not connect to Messenger: " + msg.err.Error())
 			return m, nil
 		}
-		return m, m.loadThreads
+		return m, m.reload()
+	case backgroundSyncMsg:
+		m.syncing = false
+		m.refreshViewport()
+		if msg.err != nil {
+			model, cmd := m.Update(toastMsg{message: "sync: " + msg.err.Error()})
+			return model, tea.Batch(cmd, m.reload())
+		}
+		return m, m.reload()
 	case errorMsg:
 		m.showError(msg.text)
 		return m, nil
 	case bootMsg:
 		if msg.err != nil {
 			m.showError(msg.err.Error())
-			m.kickHistorySync()
-			return m, nil
+			return m, m.kickHistorySync()
 		}
 		if msg.askPIN {
 			m.openPINModal()
 			return m, textinput.Blink
 		}
-		m.kickHistorySync()
-		return m, nil
+		return m, m.kickHistorySync()
 	case pinResultMsg:
 		if msg.err != nil {
 			m.pinErr = msg.err.Error()
@@ -293,8 +312,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.status = "history unlocked"
 		}
-		m.kickHistorySync()
-		return m, nil
+		return m, m.kickHistorySync()
 	case searchResultMsg:
 		return m.updateSearch(msg)
 	case openPersonMsg:
@@ -307,10 +325,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Tick(refreshDelay, func(time.Time) tea.Msg { return refreshNowMsg{} })
 	case refreshNowMsg:
 		m.refreshQueued = false
-		if m.selectedID != 0 {
-			return m, tea.Batch(m.loadThreads, m.loadMessages(m.selectedID))
-		}
-		return m, m.loadThreads
+		return m, m.reload()
 	case toastExpiredMsg:
 		if msg.message == m.toast {
 			m.toast = ""
@@ -322,6 +337,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return toastExpiredMsg{message: msg.message}
 		})
 	case threadsLoadedMsg:
+		m.threadsLoaded = true
 		if msg.err != nil {
 			m.showError(msg.err.Error())
 			return m, nil
@@ -427,6 +443,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = "opened media"
 		return m, nil
 	case historyFinishedMsg:
+		delete(m.historyLoading, msg.threadID)
 		if msg.threadID != m.selectedID {
 			return m, nil
 		}
@@ -552,7 +569,7 @@ func (m Model) updateMain(msg tea.Msg) (Model, tea.Cmd) {
 		m.selectedID = item.thread.ID
 		m.openedID = item.thread.ID
 		m.setFocus(focusMessages)
-		return m, tea.Batch(m.loadMessages(item.thread.ID), m.track(m.fetchHistory(item.thread)), m.maybeMarkRead())
+		return m, tea.Batch(m.loadMessages(item.thread.ID), m.fetchHistory(item.thread), m.maybeMarkRead())
 	}
 	return m.updateFocused(msg)
 }
@@ -710,14 +727,27 @@ func (m Model) loadMessages(threadID int64) tea.Cmd {
 	}
 }
 
-func (m Model) fetchHistory(thread store.Thread) tea.Cmd {
+func (m *Model) fetchHistory(thread store.Thread) tea.Cmd {
 	if m.history == nil || thread.ID == 0 {
 		return nil
 	}
-	return func() tea.Msg {
+	m.historyLoading[thread.ID] = true
+	m.refreshViewport()
+	return m.track(func() tea.Msg {
 		err := m.history.LoadHistory(m.ctx, thread)
 		return historyFinishedMsg{threadID: thread.ID, err: err}
+	})
+}
+
+func (m Model) reload() tea.Cmd {
+	if m.selectedID != 0 {
+		return tea.Batch(m.loadThreads, m.loadMessages(m.selectedID))
 	}
+	return m.loadThreads
+}
+
+func (m Model) loading() bool {
+	return m.connecting || m.syncing
 }
 
 func (m *Model) queueSend() tea.Cmd {

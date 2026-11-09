@@ -40,7 +40,7 @@ Array form from a browser cookie export:
 
 The array form picks `messenger` or `facebook` from the cookie domain.
 
-The interface opens right away with the chats already stored locally and connects to Messenger in the background; the bottom bar shows "connecting to Messenger…" until the connection is ready. Actions taken before then wait for the connection.
+The interface opens right away with the chats already stored locally and connects to Messenger in the background; the bottom bar shows "connecting to Messenger…" until the connection is ready, then "syncing history…" while older chats and messages download. Panels show "Loading chats…" or "Loading messages…" until their data arrives. Actions taken before then wait for the connection.
 
 If connect fails with an expired or rejected session, open Messenger in the browser, confirm the inbox loads, export cookies again, and replace `cookies.json`. Do not reuse an old export.
 

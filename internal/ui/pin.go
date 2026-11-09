@@ -36,15 +36,13 @@ func (m Model) updatePIN(msg tea.Msg) (Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Skip):
 			m.closePINModal()
 			m.status = "history unlock skipped"
-			m.kickHistorySync()
-			return m, nil
+			return m, m.kickHistorySync()
 		case key.Matches(msg, m.keys.Unlock):
 			value := strings.TrimSpace(m.pinInput.Value())
 			if value == "" {
 				m.closePINModal()
 				m.status = "history unlock skipped"
-				m.kickHistorySync()
-				return m, nil
+				return m, m.kickHistorySync()
 			}
 			if len(value) != 6 {
 				m.pinErr = "enter exactly 6 digits, or leave empty to skip"

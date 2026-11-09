@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -268,8 +269,8 @@ func run() error {
 		ui.Config{
 			PrefillPIN: *pinFlag,
 			Connecting: true,
-			OnReady: func() {
-				go syncHistoryBackground(ctx, client, db, appRef.Load())
+			BackgroundSync: func(ctx context.Context) error {
+				return syncHistoryBackground(ctx, client, db, appRef.Load())
 			},
 		},
 	)
@@ -297,15 +298,13 @@ func connect(ctx context.Context, client *meta.Client, db *store.Store) error {
 	return nil
 }
 
-func syncHistoryBackground(ctx context.Context, client *meta.Client, db *store.Store, app *ui.App) {
-	if err := client.SyncInboxThreads(ctx, db); err == nil {
-		app.Notify()
+func syncHistoryBackground(ctx context.Context, client *meta.Client, db *store.Store, app *ui.App) error {
+	inboxErr := client.SyncInboxThreads(ctx, db)
+	app.Notify()
+	if !client.HasHistoryDevice() {
+		return inboxErr
 	}
-	if client.HasHistoryDevice() {
-		if err := client.SyncAllEncryptedHistory(ctx, db); err == nil {
-			app.Notify()
-		}
-	}
+	return errors.Join(inboxErr, client.SyncAllEncryptedHistory(ctx, db))
 }
 
 func setupLogging(dir string, verbose bool) (io.Closer, io.Writer, error) {

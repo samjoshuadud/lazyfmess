@@ -36,7 +36,15 @@ func (m Model) renderBase() string {
 	if filter := m.list.FilterValue(); filter != "" {
 		chatsTitle += " /" + filter
 	}
-	left := frame(chatsTitle, m.focus == focusList, m.leftWidth, bodyH, m.list.View())
+	chats := m.list.View()
+	if len(m.list.Items()) == 0 {
+		placeholder := "No chats yet"
+		if !m.threadsLoaded || m.loading() {
+			placeholder = "Loading chats…"
+		}
+		chats = "\n" + statusStyle.Render(placeholder)
+	}
+	left := frame(chatsTitle, m.focus == focusList, m.leftWidth, bodyH, chats)
 	messages := frame("[2] "+m.conversationTitle(), m.focus == focusMessages, m.rightWidth, bodyH-composerFrameHeight, m.viewport.View())
 	composeTitle := "[3] Compose"
 	switch {
@@ -70,8 +78,11 @@ func (m Model) renderStatusBar() string {
 		text = m.toast
 		style = toastStyle
 	}
-	if m.connecting {
+	switch {
+	case m.connecting:
 		text = "connecting to Messenger… · " + text
+	case m.syncing:
+		text = "syncing history… · " + text
 	}
 	right := ansi.Truncate(text, m.width/2, "…")
 	if m.inFlight > 0 {
