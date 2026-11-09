@@ -28,13 +28,16 @@ func SaveState(dataDir string, state json.RawMessage) error {
 	if len(state) == 0 {
 		return nil
 	}
-	path := StatePath(dataDir)
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, state, 0o600); err != nil {
+	if err := writePrivate(StatePath(dataDir), state); err != nil {
 		return fmt.Errorf("write state: %w", err)
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		return fmt.Errorf("rename state: %w", err)
-	}
 	return nil
+}
+
+func writePrivate(path string, data []byte) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }

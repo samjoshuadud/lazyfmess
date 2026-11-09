@@ -58,6 +58,17 @@ func LoadCookies(dataDir string) (*Cookies, error) {
 	return &Cookies{Platform: file.Platform, Values: file.Cookies}, nil
 }
 
+func SaveCookies(dataDir string, c *Cookies) error {
+	data, err := json.MarshalIndent(cookieFile{Platform: c.Platform, Cookies: c.Values}, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode cookies: %w", err)
+	}
+	if err := writePrivate(CookiesPath(dataDir), data); err != nil {
+		return fmt.Errorf("write cookies: %w", err)
+	}
+	return nil
+}
+
 func parseCookieFile(data []byte) (cookieFile, error) {
 	trimmed := bytes.TrimSpace(data)
 	if len(trimmed) == 0 {

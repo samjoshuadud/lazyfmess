@@ -3,6 +3,7 @@ package session
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -131,5 +132,37 @@ func TestLoadCookiesMissingFile(t *testing.T) {
 	_, err := LoadCookies(t.TempDir())
 	if err == nil {
 		t.Fatal("expected error for missing file")
+	}
+}
+
+func TestSaveCookiesRoundTrip(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	array := `[{"name":"xs","value":"x1","domain":".messenger.com"},{"name":"c_user","value":"42","domain":".messenger.com"},{"name":"datr","value":"d1","domain":".messenger.com"}]`
+	if err := os.WriteFile(CookiesPath(dir), []byte(array), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	loaded, err := LoadCookies(dir)
+	if err != nil {
+		t.Fatalf("LoadCookies: %v", err)
+	}
+	loaded.Values["xs"] = "x2"
+	if err := SaveCookies(dir, loaded); err != nil {
+		t.Fatalf("SaveCookies: %v", err)
+	}
+	info, err := os.Stat(CookiesPath(dir))
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("cookies file mode: %v %v", info.Mode(), err)
+	}
+	data, _ := os.ReadFile(CookiesPath(dir))
+	if !strings.HasPrefix(strings.TrimSpace(string(data)), "{") {
+		t.Fatalf("saved file should use the object form: %s", data)
+	}
+	again, err := LoadCookies(dir)
+	if err != nil {
+		t.Fatalf("LoadCookies after save: %v", err)
+	}
+	if again.Platform != "messenger" || again.Values["xs"] != "x2" || again.Values["c_user"] != "42" {
+		t.Fatalf("round trip: %+v", again)
 	}
 }

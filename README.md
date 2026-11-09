@@ -40,9 +40,12 @@ go build -o lazyfmess ./cmd/lazyfmess
 
 lazyfmess logs in with cookies from a browser session. The password and any two-factor prompts stay in the browser; lazyfmess never handles them.
 
-1. Log in to messenger.com in a browser and confirm the inbox loads.
+1. Open a private browser window, log in to messenger.com, and confirm the inbox loads.
 2. Export the cookies for messenger.com with a cookie export extension.
-3. Save the export as `cookies.json` in the [data directory](#data-directory).
+3. Close the private window without logging out. Logging out ends the exported session as well.
+4. Save the export as `cookies.json` in the [data directory](#data-directory).
+
+lazyfmess saves the refreshed cookies Messenger sends back during a session to `cookies.json`, so the session keeps working across restarts.
 
 Two formats are accepted. The array form from a browser export picks `messenger` or `facebook` from the cookie domain:
 

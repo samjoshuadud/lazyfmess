@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"reflect"
 	"strconv"
 	"sync"
@@ -41,6 +42,9 @@ type Client struct {
 	mediaMu       sync.Mutex
 	tempMedia     []string
 	cookieUserID  int64
+	platform      string
+	cookieMu      sync.Mutex
+	savedCookies  map[string]string
 	ready         chan struct{}
 	connectErr    error
 }
@@ -56,6 +60,8 @@ func New(sess *session.Cookies, dataDir string, logWriter io.Writer, handler Eve
 	}
 	cli := &Client{handler: handler, dataDir: dataDir, ready: make(chan struct{})}
 	cli.cookieUserID, _ = strconv.ParseInt(sess.Values["c_user"], 10, 64)
+	cli.platform = sess.Platform
+	cli.savedCookies = sess.Values
 	cli.mx = messagix.NewClient(mc, logger, &messagix.Config{})
 	cli.mx.SetEventHandler(cli.onEvent)
 	if err := cli.loadHistoryDevice(); err != nil {
@@ -68,7 +74,29 @@ func (c *Client) Connect(ctx context.Context) error {
 	err := c.connect(ctx)
 	c.connectErr = err
 	close(c.ready)
+	if err == nil {
+		c.persistCookies()
+	}
 	return err
+}
+
+func (c *Client) persistCookies() {
+	c.cookieMu.Lock()
+	defer c.cookieMu.Unlock()
+	live := c.mx.GetCookies()
+	if live == nil || !live.IsLoggedIn() {
+		return
+	}
+	values := make(map[string]string)
+	for name, value := range live.GetAll() {
+		values[string(name)] = value
+	}
+	if maps.Equal(values, c.savedCookies) {
+		return
+	}
+	if err := session.SaveCookies(c.dataDir, &session.Cookies{Platform: c.platform, Values: values}); err == nil {
+		c.savedCookies = values
+	}
 }
 
 func (c *Client) waitReady(ctx context.Context) error {
@@ -124,6 +152,7 @@ func (c *Client) Disconnect() {
 	if state, err := c.mx.DumpState(); err == nil && len(state) > 0 {
 		_ = session.SaveState(c.dataDir, state)
 	}
+	c.persistCookies()
 	if c.e2ee != nil {
 		c.e2ee.Disconnect()
 	}
@@ -228,6 +257,7 @@ func (c *Client) persistStateLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			c.persistCookies()
 			state, err := c.mx.DumpState()
 			if err != nil || len(state) == 0 {
 				continue
