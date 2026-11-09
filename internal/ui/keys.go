@@ -21,6 +21,9 @@ type keyMap struct {
 	Compose   key.Binding
 	People    key.Binding
 	Filter    key.Binding
+	JumpChats key.Binding
+	JumpChat  key.Binding
+	JumpInput key.Binding
 
 	Up       key.Binding
 	Down     key.Binding
@@ -57,6 +60,9 @@ func newKeyMap() keyMap {
 		Compose:   key.NewBinding(key.WithKeys("i", "a", "c"), key.WithHelp("i", "compose")),
 		People:    key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "people")),
 		Filter:    key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
+		JumpChats: key.NewBinding(key.WithKeys("1"), key.WithHelp("1", "chats")),
+		JumpChat:  key.NewBinding(key.WithKeys("2"), key.WithHelp("2", "messages")),
+		JumpInput: key.NewBinding(key.WithKeys("3"), key.WithHelp("3", "compose")),
 
 		Up:       key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k/↑", "up")),
 		Down:     key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j/↓", "down")),
@@ -86,12 +92,18 @@ type keySection struct {
 	bindings []key.Binding
 }
 
-func (k keyMap) sections() []keySection {
-	return []keySection{
-		{"Global", []key.Binding{k.NextPane, k.PrevPane, k.PaneLeft, k.PaneRight, k.Back, k.Compose, k.People, k.Filter, k.Help, k.Quit}},
-		{"Chats", []key.Binding{k.Up, k.Down, k.OpenChat}},
-		{"Messages", []key.Binding{k.Down, k.Up, k.Top, k.Bottom, k.HalfDown, k.HalfUp, k.NextMedia, k.PrevMedia, k.OpenMedia}},
-		{"Compose", []key.Binding{k.Send, k.Back}},
+func (k keyMap) sections() [][]keySection {
+	return [][]keySection{
+		{
+			{"Global", []key.Binding{k.JumpChats, k.JumpChat, k.JumpInput, k.NextPane, k.PrevPane, k.PaneLeft, k.PaneRight, k.Back, k.Compose, k.People, k.Filter, k.Help, k.Quit}},
+		},
+		{
+			{"Chats", []key.Binding{k.Up, k.Down, k.OpenChat}},
+			{"Compose", []key.Binding{k.Send, k.Back}},
+		},
+		{
+			{"Messages", []key.Binding{k.Down, k.Up, k.Top, k.Bottom, k.HalfDown, k.HalfUp, k.NextMedia, k.PrevMedia, k.OpenMedia}},
+		},
 	}
 }
 
@@ -126,24 +138,27 @@ func renderHints(bindings []key.Binding, width int) string {
 	return ansi.Truncate(h.ShortHelpView(bindings), width, "…")
 }
 
-func renderKeySections(sections []keySection) string {
-	keyWidth := 0
-	for _, section := range sections {
-		for _, b := range section.bindings {
-			keyWidth = max(keyWidth, lipgloss.Width(b.Help().Key))
+func renderKeySections(columns [][]keySection) string {
+	keyStyle := lipgloss.NewStyle().Foreground(accent).PaddingRight(2)
+	descStyle := lipgloss.NewStyle().Foreground(text).PaddingRight(4)
+	rendered := make([]string, 0, len(columns))
+	for _, column := range columns {
+		var keys, descs []string
+		for i, section := range column {
+			if i > 0 {
+				keys, descs = append(keys, ""), append(descs, "")
+			}
+			keys, descs = append(keys, titleStyle.Render(section.title)), append(descs, "")
+			for _, b := range section.bindings {
+				keys = append(keys, "  "+b.Help().Key)
+				descs = append(descs, b.Help().Desc)
+			}
 		}
+		rendered = append(rendered, lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			keyStyle.Render(strings.Join(keys, "\n")),
+			descStyle.Render(strings.Join(descs, "\n")),
+		))
 	}
-	keyStyle := lipgloss.NewStyle().Foreground(accent).Width(keyWidth + 2)
-	descStyle := lipgloss.NewStyle().Foreground(text)
-	var out []string
-	for i, section := range sections {
-		if i > 0 {
-			out = append(out, "")
-		}
-		out = append(out, titleStyle.Render(section.title))
-		for _, b := range section.bindings {
-			out = append(out, "  "+keyStyle.Render(b.Help().Key)+descStyle.Render(b.Help().Desc))
-		}
-	}
-	return strings.Join(out, "\n")
+	return lipgloss.JoinHorizontal(lipgloss.Top, rendered...)
 }

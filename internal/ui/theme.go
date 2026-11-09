@@ -19,19 +19,12 @@ var (
 			Foreground(accent).
 			Bold(true)
 
-	panelTitleStyle = lipgloss.NewStyle().
-			Foreground(text).
-			Bold(true).
-			Padding(0, 1).
-			Border(lipgloss.NormalBorder(), false, false, true, false).
-			BorderForeground(line)
-
-	sidebarStyle = lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder(), false, true, false, false).
-			BorderForeground(line)
-
 	statusStyle = lipgloss.NewStyle().
 			Foreground(muted).
+			Padding(0, 1)
+
+	toastStyle = lipgloss.NewStyle().
+			Foreground(text).
 			Padding(0, 1)
 
 	errorStatusStyle = lipgloss.NewStyle().
@@ -97,6 +90,7 @@ func newThreadList() list.Model {
 	threads.Styles.FilterPrompt = lipgloss.NewStyle().Foreground(accent)
 	threads.Styles.FilterCursor = lipgloss.NewStyle().Foreground(accent)
 	threads.Styles.NoItems = lipgloss.NewStyle().Foreground(muted).Padding(0, 1)
+	threads.SetShowTitle(false)
 	threads.SetShowStatusBar(false)
 	threads.SetShowHelp(false)
 	threads.SetShowPagination(false)

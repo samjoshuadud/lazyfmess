@@ -86,13 +86,14 @@ Controls follow common lazy-style TUI navigation:
 - `j`/`k` or arrows move in the inbox and scroll chat
 - `enter` opens a chat or sends from the composer
 - `i` / `a` / `c` focuses the composer
+- `1` / `2` / `3` jump to the chats, messages, or compose panel
 - `tab` cycles inbox → chat → compose
 - `h`/`l` move between panes
 - `/` filters the inbox
 - `s` searches Messenger people and opens a chat
 - `n` / `p` moves to the next or previous image or video (`▸` marks focus)
 - `o` or Enter opens focused media in the system viewer
-- `?` shows key help
+- `?` shows every key binding; the bottom bar shows the keys for the focused panel
 - `q` quits (Esc goes back a pane)
 
 Images and videos stay as placeholders in chat. Opening them downloads to a temporary file, launches the desktop opener, then deletes the file once the viewer releases it or when lazyfmess exits.

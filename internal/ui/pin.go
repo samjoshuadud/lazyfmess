@@ -57,7 +57,7 @@ func (m Model) updatePIN(msg tea.Msg) (Model, tea.Cmd) {
 				}
 			}
 			m.status = "unlocking history"
-			return m, m.submitPIN(value)
+			return m, m.track(m.submitPIN(value))
 		}
 	}
 	var cmd tea.Cmd
@@ -93,7 +93,7 @@ func (m Model) renderPINModal() string {
 	}
 	help := renderHints(m.contextBindings(), width-4)
 
-	card := modalStyle.Width(width).Render(
+	return modalStyle.Width(width).Render(
 		lipgloss.JoinVertical(
 			lipgloss.Left,
 			title,
@@ -106,5 +106,4 @@ func (m Model) renderPINModal() string {
 			help,
 		),
 	)
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, card)
 }

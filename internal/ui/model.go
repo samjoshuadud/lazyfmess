@@ -8,10 +8,12 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"lazyfmess/internal/store"
 )
@@ -78,6 +80,8 @@ type Model struct {
 	keys          keyMap
 	list          list.Model
 	viewport      viewport.Model
+	spinner       spinner.Model
+	inFlight      int
 	composer      textarea.Model
 	pinInput      textinput.Model
 	searchInput   textinput.Model
@@ -101,6 +105,10 @@ type Model struct {
 	leftWidth     int
 	rightWidth    int
 	messages      []store.Message
+}
+
+type workDoneMsg struct {
+	msg tea.Msg
 }
 
 type historyFinishedMsg struct {
@@ -129,6 +137,7 @@ func New(ctx context.Context, s *store.Store, sender Sender, history HistoryLoad
 		keys:       newKeyMap(),
 		list:       newThreadList(),
 		viewport:   viewport.New(1, 1),
+		spinner:    spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(lipgloss.NewStyle().Foreground(accent))),
 		composer:   composer,
 		pinInput:   newPINInput(),
 		focus:      focusList,
@@ -169,6 +178,16 @@ func (m *Model) kickHistorySync() {
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case workDoneMsg:
+		m.inFlight--
+		return m.Update(msg.msg)
+	case spinner.TickMsg:
+		if m.inFlight == 0 {
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -340,6 +359,15 @@ func (m Model) updateMain(msg tea.Msg) (Model, tea.Cmd) {
 		return m.updateFocused(msg)
 	case key.Matches(k, keys.Quit):
 		return m, tea.Quit
+	case key.Matches(k, keys.JumpChats):
+		m.setFocus(focusList)
+		return m, nil
+	case key.Matches(k, keys.JumpChat):
+		m.setFocus(focusMessages)
+		return m, nil
+	case key.Matches(k, keys.JumpInput) && m.selectedID != 0:
+		m.setFocus(focusComposer)
+		return m, nil
 	case key.Matches(k, keys.Help):
 		m.showHelp = true
 		return m, nil
@@ -369,7 +397,7 @@ func (m Model) updateMain(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		m.selectedID = item.thread.ID
 		m.setFocus(focusMessages)
-		return m, tea.Batch(m.loadMessages(item.thread.ID), m.fetchHistory(item.thread))
+		return m, tea.Batch(m.loadMessages(item.thread.ID), m.track(m.fetchHistory(item.thread)))
 	}
 	return m.updateFocused(msg)
 }
@@ -427,7 +455,7 @@ func (m Model) updateMessages(msg tea.Msg) (Model, tea.Cmd) {
 		m.refreshViewport()
 		m.scrollToMediaFocus()
 	case key.Matches(k, keys.OpenMedia):
-		return m, m.openFocusedMedia()
+		return m, m.track(m.openFocusedMedia())
 	default:
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
@@ -468,14 +496,14 @@ func (m *Model) applyFocus() {
 }
 
 func (m *Model) refreshViewport() {
-	m.viewport.SetContent(renderMessages(m.messages, m.rightWidth, m.selfAccountID(), m.mediaFocusID))
+	m.viewport.SetContent(renderMessages(m.messages, m.viewport.Width, m.selfAccountID(), m.mediaFocusID))
 }
 
 func (m *Model) scrollToMediaFocus() {
 	if m.mediaFocusID == "" || m.viewport.Height <= 0 {
 		return
 	}
-	content := renderMessages(m.messages, m.rightWidth, m.selfAccountID(), m.mediaFocusID)
+	content := renderMessages(m.messages, m.viewport.Width, m.selfAccountID(), m.mediaFocusID)
 	target := -1
 	for i, line := range strings.Split(content, "\n") {
 		if strings.Contains(line, "▸") {
@@ -563,6 +591,18 @@ func (m Model) openFocusedMedia() tea.Cmd {
 	}
 }
 
+func (m *Model) track(cmd tea.Cmd) tea.Cmd {
+	if cmd == nil {
+		return nil
+	}
+	m.inFlight++
+	work := func() tea.Msg { return workDoneMsg{msg: cmd()} }
+	if m.inFlight == 1 {
+		return tea.Batch(work, m.spinner.Tick)
+	}
+	return work
+}
+
 func (m Model) loadThreads() tea.Msg {
 	threads, err := m.store.ListThreads(m.ctx)
 	return threadsLoadedMsg{threads: threads, err: err}
@@ -612,7 +652,7 @@ func (m *Model) queueSend() tea.Cmd {
 	send := func() tea.Msg {
 		return sendFinishedMsg{threadID: thread.ID, err: m.sendPending(thread, pending)}
 	}
-	return tea.Batch(m.loadMessages(thread.ID), send)
+	return tea.Batch(m.loadMessages(thread.ID), m.track(send))
 }
 
 func (m Model) sendPending(thread store.Thread, pending store.Message) error {

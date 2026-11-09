@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type searchResultMsg struct {
@@ -97,7 +98,7 @@ func (m Model) updateSearch(msg tea.Msg) (Model, tea.Cmd) {
 		m.status = "opened chat"
 		cmds := []tea.Cmd{m.loadThreads, m.loadMessages(msg.threadID)}
 		if thread, err := m.store.GetThread(m.ctx, msg.threadID); err == nil {
-			cmds = append(cmds, m.fetchHistory(thread))
+			cmds = append(cmds, m.track(m.fetchHistory(thread)))
 		}
 		return m, tea.Batch(cmds...)
 	case tea.KeyMsg:
@@ -127,7 +128,7 @@ func (m Model) updateSearch(msg tea.Msg) (Model, tea.Cmd) {
 				if m.searchIndex >= 0 && m.searchIndex < len(m.searchResults) {
 					person := m.searchResults[m.searchIndex]
 					m.status = "opening " + person.Name
-					return m, m.openPerson(person)
+					return m, m.track(m.openPerson(person))
 				}
 			}
 			m.searchQuery = query
@@ -135,7 +136,7 @@ func (m Model) updateSearch(msg tea.Msg) (Model, tea.Cmd) {
 			m.searchResults = nil
 			m.searchIndex = 0
 			m.status = "searching"
-			return m, m.runSearch(query)
+			return m, m.track(m.runSearch(query))
 		}
 	}
 	var cmd tea.Cmd
@@ -195,11 +196,11 @@ func (m Model) renderSearchModal() string {
 		}
 		for i := start; i < end; i++ {
 			item := m.searchResults[i]
-			line := fmt.Sprintf("%s  %s", item.Name, item.Context)
+			line := ansi.Truncate(item.Name+"  "+item.Context, width-6, "…")
 			if i == m.searchIndex {
-				results.WriteString(focusMark.Render("> " + truncate(line, width-6)))
+				results.WriteString(focusMark.Render("> " + line))
 			} else {
-				results.WriteString(statusStyle.Render("  " + truncate(line, width-6)))
+				results.WriteString(statusStyle.Render("  " + line))
 			}
 			if i < end-1 {
 				results.WriteByte('\n')

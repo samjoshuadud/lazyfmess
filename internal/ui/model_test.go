@@ -155,23 +155,14 @@ func TestPeopleSearchOpensChat(t *testing.T) {
 		t.Fatal("expected people search open")
 	}
 	m.searchInput.SetValue("Dana")
-	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m = model.(Model)
-	if cmd == nil {
-		t.Fatal("expected search command")
-	}
-	model, _ = m.Update(cmd())
-	m = model.(Model)
+	m = drain(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if len(m.searchResults) != 1 || m.searchResults[0].Name != "Dana" {
 		t.Fatalf("search results: %+v", m.searchResults)
 	}
-	model, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m = model.(Model)
-	if cmd == nil {
-		t.Fatal("expected open command")
+	if m.inFlight != 0 {
+		t.Fatalf("inFlight after search: %d", m.inFlight)
 	}
-	model, cmd = m.Update(cmd())
-	m = model.(Model)
+	m = drain(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if m.showSearch {
 		t.Fatal("expected people search closed")
 	}
@@ -181,7 +172,6 @@ func TestPeopleSearchOpensChat(t *testing.T) {
 	if searcher.opened.ID != 42 {
 		t.Fatalf("opened: %+v", searcher.opened)
 	}
-	_ = cmd
 }
 
 func newTestModel(t *testing.T, threads int, messagesPerThread int) Model {
@@ -278,7 +268,7 @@ func TestHeaderUsesOpenThreadWhenFiltered(t *testing.T) {
 	m := newTestModel(t, 3, 0)
 	m.selectedID = 1
 	m.list.SetFilterText("Thread 3")
-	if !strings.Contains(m.renderConversation(), "Thread 1") {
+	if m.conversationTitle() != "Thread 1" {
 		t.Fatal("header should show the open thread, not the filtered cursor")
 	}
 }
