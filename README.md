@@ -42,7 +42,7 @@ go build -o lazyfmess ./cmd/lazyfmess
 
 ## Login
 
-Without a saved session, lazyfmess opens a login screen with these options:
+Without a saved session, lazyfmess opens a login screen with these options. Read [Limitations](#limitations) first: each option carries some account risk.
 
 | Option | How it works |
 |---|---|
@@ -183,6 +183,32 @@ The default is `os.UserConfigDir()/lazyfmess`, which is `$XDG_CONFIG_HOME/lazyfm
 | `lazyfmess.log` | Protocol logs |
 
 These files grant access to the account. Keep them private and never commit them.
+
+## Limitations
+
+### Account safety
+
+lazyfmess is an unofficial client. Meta does not support third-party clients and watches for automated or unusual account activity. Any login method can lead to a security check, a forced logout, or a temporary restriction. Reports from users of [mautrix-meta](https://github.com/mautrix/meta/issues/44), the library lazyfmess uses, include "We suspect automated behaviour on your account" warnings, captchas, revoked sessions, and occasionally a disabled account. Two-factor authentication on the account, a home internet connection instead of a VPN or cloud server, and avoiding repeated logins reduce the risk.
+
+### Account login
+
+- **It appears as a phone.** Account login works by acting as the official Messenger Android app, so Facebook lists the session as a Google Pixel 7, not as a computer. A new phone signing in from a desktop's network can look like a stolen password. The first login may produce a "Was this you?" or "Your account may have been hacked" alert. Confirming the login as legitimate clears it.
+- **Two-factor codes fail in this version.** Meta changed its code entry screen, and the bundled mautrix-meta v0.2610.0 cannot process it, so a typed two-factor code ends with an `expected int64 ... got float64` error. The fix exists upstream and arrives with the next mautrix-meta release. Approving the login from another device works in the meantime.
+- **Some checks need a browser.** reCAPTCHA, Google sign-in, and Meta security checkpoints cannot be completed in a terminal. Finish them in a browser or the official app, then log in again.
+- **Each login is a new device.** Every account login registers another phone session on the account. Keeping one long-lived session is less suspicious than logging in repeatedly.
+
+### Cookie login
+
+- **Sessions depend on the browser session.** Logging out of the browser session the cookies came from ends the lazyfmess session too.
+- **The browser identity differs.** lazyfmess identifies itself to Meta as Chrome on Linux. Cookies from a different browser or operating system can make the session look moved, and Meta may revoke it after some days. Cookies from a Chromium-based browser on Linux match best.
+- **Browser import is limited.** Import works on Linux only. Chromium-based browsers that keep cookies in the system keyring, which includes many Chrome and Brave setups, cannot be read; paste the cookie export instead.
+
+### Other
+
+- Received images and videos in encrypted chats show as text placeholders and cannot be opened.
+- Logging in to a different account in the same data directory reuses the previous account's encryption keys and message cache. Use a separate `-data-dir` for each account.
+- The background history sync downloads older messages for every chat after startup, which is heavy on large inboxes.
+- The macOS and Windows builds are compiled but not tested.
 
 ## License
 
