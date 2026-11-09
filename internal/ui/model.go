@@ -91,7 +91,9 @@ type Model struct {
 	searchIndex   int
 	selectedID    int64
 	loadedID      int64
-	mediaFocusID  string
+	cursorID      string
+	spans         map[string]lineSpan
+	order         []string
 	status        string
 	toast         string
 	width         int
@@ -272,15 +274,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.threadID != m.selectedID {
 			return m, nil
 		}
-		follow := msg.threadID != m.loadedID || m.viewport.AtBottom()
+		newThread := msg.threadID != m.loadedID
+		follow := newThread || m.viewport.AtBottom()
+		cursorAtEnd := len(m.order) == 0 || m.cursorID == m.order[len(m.order)-1]
 		m.loadedID = msg.threadID
 		m.messages = msg.messages
-		m.ensureMediaFocus()
+		m.refreshViewport()
+		m.placeCursor(newThread || cursorAtEnd)
 		m.refreshViewport()
 		if follow {
 			m.viewport.GotoBottom()
 		}
 		return m, nil
+	case editorFinishedMsg:
+		if msg.err != nil {
+			m.showError(msg.err.Error())
+			return m, nil
+		}
+		m.composer.SetValue(msg.text)
+		return m, nil
+	case tea.MouseMsg:
+		if m.popup != nil || m.showPIN || m.showSearch || m.showHelp {
+			return m, nil
+		}
+		return m.handleMouse(msg)
 	case mediaOpenedMsg:
 		if msg.err != nil {
 			m.showError(msg.err.Error())
@@ -435,36 +452,44 @@ func (m Model) updateMessages(msg tea.Msg) (Model, tea.Cmd) {
 	keys := m.keys
 	switch {
 	case key.Matches(k, keys.Down):
-		m.viewport.LineDown(1)
+		m.moveCursor(1)
 	case key.Matches(k, keys.Up):
-		m.viewport.LineUp(1)
+		m.moveCursor(-1)
 	case key.Matches(k, keys.Top):
-		m.viewport.GotoTop()
+		m.moveCursor(-len(m.order))
 	case key.Matches(k, keys.Bottom):
-		m.viewport.GotoBottom()
+		m.moveCursor(len(m.order))
 	case key.Matches(k, keys.HalfDown):
-		m.viewport.HalfViewDown()
+		m.viewport.HalfPageDown()
 	case key.Matches(k, keys.HalfUp):
-		m.viewport.HalfViewUp()
+		m.viewport.HalfPageUp()
 	case key.Matches(k, keys.NextMedia):
-		m.cycleMediaFocus(1)
-		m.refreshViewport()
-		m.scrollToMediaFocus()
+		m.jumpMedia(1)
 	case key.Matches(k, keys.PrevMedia):
-		m.cycleMediaFocus(-1)
-		m.refreshViewport()
-		m.scrollToMediaFocus()
+		m.jumpMedia(-1)
 	case key.Matches(k, keys.OpenMedia):
-		return m, m.track(m.openFocusedMedia())
-	default:
-		var cmd tea.Cmd
-		m.viewport, cmd = m.viewport.Update(msg)
-		return m, cmd
+		msg, _ := m.cursorMessage()
+		return m, m.track(m.openMedia(msg))
+	case key.Matches(k, keys.Copy):
+		if msg, ok := m.cursorMessage(); ok && strings.TrimSpace(msg.Text) != "" {
+			return m, copyText(msg.Text)
+		}
+	case key.Matches(k, keys.Actions):
+		msg, ok := m.cursorMessage()
+		if !ok {
+			return m, nil
+		}
+		if items := m.messageActions(msg); len(items) > 0 {
+			m.showMenu("Message", items)
+		}
 	}
 	return m, nil
 }
 
 func (m Model) updateComposer(msg tea.Msg) (Model, tea.Cmd) {
+	if k, ok := msg.(tea.KeyMsg); ok && key.Matches(k, m.keys.Editor) {
+		return m, editDraft(m.composer.Value())
+	}
 	var cmd tea.Cmd
 	m.composer, cmd = m.composer.Update(msg)
 	return m, cmd
@@ -484,6 +509,7 @@ func (m *Model) cycleFocus(delta int) {
 func (m *Model) setFocus(pane focusPane) {
 	m.focus = pane
 	m.applyFocus()
+	m.refreshViewport()
 }
 
 func (m *Model) applyFocus() {
@@ -495,100 +521,11 @@ func (m *Model) applyFocus() {
 	}
 }
 
-func (m *Model) refreshViewport() {
-	m.viewport.SetContent(renderMessages(m.messages, m.viewport.Width, m.selfAccountID(), m.mediaFocusID))
-}
-
-func (m *Model) scrollToMediaFocus() {
-	if m.mediaFocusID == "" || m.viewport.Height <= 0 {
-		return
-	}
-	content := renderMessages(m.messages, m.viewport.Width, m.selfAccountID(), m.mediaFocusID)
-	target := -1
-	for i, line := range strings.Split(content, "\n") {
-		if strings.Contains(line, "▸") {
-			target = i
-			break
-		}
-	}
-	if target < 0 {
-		return
-	}
-	offset := target - m.viewport.Height/2
-	if offset < 0 {
-		offset = 0
-	}
-	m.viewport.SetYOffset(offset)
-}
-
 func (m Model) selfAccountID() int64 {
 	if m.sender == nil {
 		return 0
 	}
 	return m.sender.AccountID()
-}
-
-func (m *Model) mediaMessages() []store.Message {
-	out := make([]store.Message, 0)
-	for _, msg := range m.messages {
-		if msg.MediaKind != "" && msg.MediaURL != "" {
-			out = append(out, msg)
-		}
-	}
-	return out
-}
-
-func (m *Model) ensureMediaFocus() {
-	media := m.mediaMessages()
-	if len(media) == 0 {
-		m.mediaFocusID = ""
-		return
-	}
-	for _, msg := range media {
-		if msg.ID == m.mediaFocusID {
-			return
-		}
-	}
-	m.mediaFocusID = media[len(media)-1].ID
-}
-
-func (m *Model) cycleMediaFocus(delta int) {
-	media := m.mediaMessages()
-	if len(media) == 0 {
-		m.mediaFocusID = ""
-		m.status = "no media in this chat"
-		return
-	}
-	idx := len(media) - 1
-	for i, msg := range media {
-		if msg.ID == m.mediaFocusID {
-			idx = i
-			break
-		}
-	}
-	idx = (idx + delta) % len(media)
-	if idx < 0 {
-		idx += len(media)
-	}
-	m.mediaFocusID = media[idx].ID
-	m.status = fmt.Sprintf("media %d/%d · o open · %s", idx+1, len(media), mediaPlaceholder(media[idx], false))
-}
-
-func (m Model) openFocusedMedia() tea.Cmd {
-	m.ensureMediaFocus()
-	for _, msg := range m.messages {
-		if msg.ID == m.mediaFocusID {
-			return func() tea.Msg {
-				if m.media == nil {
-					return mediaOpenedMsg{err: fmt.Errorf("media open is unavailable")}
-				}
-				return mediaOpenedMsg{err: m.media.OpenMedia(m.ctx, msg)}
-			}
-		}
-	}
-	return func() tea.Msg {
-		return mediaOpenedMsg{err: fmt.Errorf("no media in this chat")}
-	}
 }
 
 func (m *Model) track(cmd tea.Cmd) tea.Cmd {
@@ -706,7 +643,7 @@ type App struct {
 }
 
 func NewApp(ctx context.Context, s *store.Store, sender Sender, history HistoryLoader, unlocker HistoryUnlocker, searcher PersonSearcher, media MediaOpener, cfg Config) *App {
-	p := tea.NewProgram(New(ctx, s, sender, history, unlocker, searcher, media, cfg), tea.WithAltScreen(), tea.WithContext(ctx))
+	p := tea.NewProgram(New(ctx, s, sender, history, unlocker, searcher, media, cfg), tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithContext(ctx))
 	return &App{program: p}
 }
 

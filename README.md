@@ -83,16 +83,21 @@ go run ./cmd/lazyfmess -verbose
 
 Controls follow common lazy-style TUI navigation:
 
-- `j`/`k` or arrows move in the inbox and scroll chat
-- `enter` opens a chat or sends from the composer
+- `j`/`k` or arrows move through chats in the inbox and through messages in a chat (`▌` marks the selected message)
+- `enter` opens a chat, opens the action menu for the selected message, or sends from the composer
+- `x` opens the action menu for the selected message
+- `y` copies the selected message text through the terminal clipboard (OSC 52)
 - `i` / `a` / `c` focuses the composer
 - `1` / `2` / `3` jump to the chats, messages, or compose panel
 - `tab` cycles inbox → chat → compose
 - `h`/`l` move between panes
 - `/` filters the inbox
 - `s` searches Messenger people and opens a chat
-- `n` / `p` moves to the next or previous image or video (`▸` marks focus)
-- `o` or Enter opens focused media in the system viewer
+- `n` / `p` moves to the next or previous image or video
+- `o` opens the selected media in the system viewer
+- `alt+enter` or `ctrl+j` inserts a newline in the composer
+- `ctrl+e` edits the draft in `$VISUAL` or `$EDITOR`
+- the mouse wheel scrolls, and a click focuses a panel
 - `?` shows every key binding; the bottom bar shows the keys for the focused panel
 - `q` quits (Esc goes back a pane)
 

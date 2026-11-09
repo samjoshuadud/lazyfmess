@@ -58,7 +58,7 @@ func TestModelLoadsThreadsAndMessages(t *testing.T) {
 		{ID: "m7", SenderID: 2, SenderName: "Dana", Text: "ping", Timestamp: now},
 		{ID: "m8", SenderID: 1, SenderName: "Pat", Text: "pong", Timestamp: now.Add(time.Minute)},
 		{ID: "m9", SenderID: 2, SenderName: "Dana", Text: "", Timestamp: now.Add(2 * time.Minute), MediaKind: "image", MediaURL: "https://example.test/a.jpg"},
-	}, 40, 1, "m9")
+	}, 40, 1, "m9").content
 	if !strings.Contains(rendered, "ping") || !strings.Contains(rendered, "Dana") {
 		t.Fatalf("renderMessages missing peer text: %q", rendered)
 	}
@@ -68,8 +68,8 @@ func TestModelLoadsThreadsAndMessages(t *testing.T) {
 	if strings.Contains(rendered, "Pat") {
 		t.Fatalf("self message should use you, not contact name: %q", rendered)
 	}
-	if !strings.Contains(rendered, "▸ [image]") {
-		t.Fatalf("renderMessages missing focused media placeholder: %q", rendered)
+	if !strings.Contains(rendered, "[image]") || !strings.Contains(rendered, "▌") {
+		t.Fatalf("renderMessages missing cursor or media placeholder: %q", rendered)
 	}
 
 	model, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})

@@ -43,66 +43,70 @@ type mediaOpenedMsg struct {
 
 const chatSidePad = 3
 
-func renderMessages(messages []store.Message, width int, selfID int64, mediaFocusID string) string {
+type lineSpan struct {
+	start, end int
+}
+
+type chatRender struct {
+	content string
+	spans   map[string]lineSpan
+	order   []string
+}
+
+func renderMessages(messages []store.Message, width int, selfID int64, cursorID string) chatRender {
 	if width <= 0 {
 		width = 40
 	}
-	inner := width - chatSidePad*2
-	if inner < 16 {
-		inner = 16
-	}
-	bubbleMax := inner * 3 / 4
-	if bubbleMax < 12 {
-		bubbleMax = 12
-	}
-	if bubbleMax > inner {
-		bubbleMax = inner
-	}
+	inner := max(width-chatSidePad*2, 16)
+	bubbleMax := min(max(inner*3/4, 12), inner)
 
-	var b strings.Builder
+	out := chatRender{spans: make(map[string]lineSpan)}
+	var rows []string
 	var prevSender int64
 	var prevTime time.Time
-	first := true
 	now := time.Now()
 
 	for _, msg := range messages {
-		body := messageBody(msg, msg.ID == mediaFocusID)
+		body := messageBody(msg)
 		if body == "" {
 			continue
 		}
-
+		first := len(out.order) == 0
 		mine := selfID != 0 && msg.SenderID == selfID
 		newDay := first || !sameDay(msg.Timestamp.Local(), prevTime.Local())
-		sameSender := !first && msg.SenderID == prevSender
-		closeInTime := sameSender && !newDay && msg.Timestamp.Sub(prevTime) < 5*time.Minute
+		closeInTime := !first && msg.SenderID == prevSender && !newDay && msg.Timestamp.Sub(prevTime) < 5*time.Minute
 		showHeader := !closeInTime
 
-		if !first {
-			if showHeader {
-				b.WriteString("\n\n")
-			} else {
-				b.WriteByte('\n')
-			}
+		if !first && showHeader {
+			rows = append(rows, "")
 		}
 		if newDay {
-			b.WriteString(daySeparator(dayLabel(msg.Timestamp, now), width))
-			b.WriteString("\n\n")
+			rows = append(rows, daySeparator(dayLabel(msg.Timestamp, now), width), "")
 		}
-
-		block := renderMessageBlock(msg, body, mine, showHeader, bubbleMax, width)
-		b.WriteString(block)
+		block := strings.Split(renderMessageBlock(msg, body, mine, showHeader, bubbleMax, width), "\n")
+		gutter := " "
+		if msg.ID == cursorID {
+			gutter = focusMark.Render("▌")
+		}
+		for k := range block {
+			block[k] = gutter + block[k]
+		}
+		out.spans[msg.ID] = lineSpan{start: len(rows), end: len(rows) + len(block) - 1}
+		out.order = append(out.order, msg.ID)
+		rows = append(rows, block...)
 		prevSender = msg.SenderID
 		prevTime = msg.Timestamp
-		first = false
 	}
-	if first {
-		return lipgloss.NewStyle().
+	if len(out.order) == 0 {
+		out.content = lipgloss.NewStyle().
 			Width(width).
 			PaddingLeft(chatSidePad).
 			PaddingRight(chatSidePad).
 			Render(statusStyle.Render("No messages yet"))
+		return out
 	}
-	return b.String()
+	out.content = strings.Join(rows, "\n")
+	return out
 }
 
 func daySeparator(label string, width int) string {
@@ -112,7 +116,7 @@ func daySeparator(label string, width int) string {
 	return timeStyle.Render(lipgloss.PlaceHorizontal(width, lipgloss.Center, rule+label+rule))
 }
 
-func messageBody(msg store.Message, mediaFocused bool) string {
+func messageBody(msg store.Message) string {
 	body := strings.TrimSpace(msg.Text)
 	if msg.Pending {
 		body = strings.TrimSpace(body + " …")
@@ -125,7 +129,7 @@ func messageBody(msg store.Message, mediaFocused bool) string {
 		}
 	}
 	if msg.MediaKind != "" {
-		placeholder := mediaPlaceholder(msg, mediaFocused)
+		placeholder := mediaPlaceholder(msg)
 		if body == "" {
 			body = placeholder
 		} else {
@@ -135,13 +139,10 @@ func messageBody(msg store.Message, mediaFocused bool) string {
 	return body
 }
 
-func mediaPlaceholder(msg store.Message, focused bool) string {
+func mediaPlaceholder(msg store.Message) string {
 	label := "[" + msg.MediaKind + "]"
 	if msg.MediaKind == "video" && msg.MediaDurationMs > 0 {
 		label = fmt.Sprintf("[video %s]", formatMediaDuration(msg.MediaDurationMs))
-	}
-	if focused {
-		return "▸ " + label
 	}
 	return label
 }
@@ -186,8 +187,8 @@ func renderMessageBlock(msg store.Message, body string, mine, showHeader bool, b
 	}
 	block := strings.Join(parts, "\n")
 	return lipgloss.NewStyle().
-		Width(paneWidth).
-		PaddingLeft(chatSidePad).
+		Width(paneWidth - 1).
+		PaddingLeft(chatSidePad - 1).
 		PaddingRight(chatSidePad).
 		Align(align).
 		Render(block)

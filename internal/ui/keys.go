@@ -36,8 +36,12 @@ type keyMap struct {
 	NextMedia key.Binding
 	PrevMedia key.Binding
 	OpenMedia key.Binding
+	Actions   key.Binding
+	Copy      key.Binding
 
-	Send key.Binding
+	Send    key.Binding
+	Newline key.Binding
+	Editor  key.Binding
 
 	Dismiss key.Binding
 	Confirm key.Binding
@@ -79,9 +83,13 @@ func newKeyMap() keyMap {
 		HalfUp:    key.NewBinding(key.WithKeys("ctrl+u"), key.WithHelp("ctrl+u", "half page up")),
 		NextMedia: key.NewBinding(key.WithKeys("n", "]", "}"), key.WithHelp("n", "next media")),
 		PrevMedia: key.NewBinding(key.WithKeys("p", "[", "{"), key.WithHelp("p", "previous media")),
-		OpenMedia: key.NewBinding(key.WithKeys("o", "enter"), key.WithHelp("o", "open media")),
+		OpenMedia: key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open media")),
+		Actions:   key.NewBinding(key.WithKeys("enter", "x"), key.WithHelp("enter/x", "actions")),
+		Copy:      key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy text")),
 
-		Send: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "send")),
+		Send:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "send")),
+		Newline: key.NewBinding(key.WithKeys("alt+enter", "ctrl+j"), key.WithHelp("alt+enter", "newline")),
+		Editor:  key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "edit in $EDITOR")),
 
 		Dismiss: key.NewBinding(key.WithKeys("enter", "esc"), key.WithHelp("enter", "dismiss")),
 		Confirm: key.NewBinding(key.WithKeys("enter", "y"), key.WithHelp("enter/y", "confirm")),
@@ -109,10 +117,10 @@ func (k keyMap) sections() [][]keySection {
 		},
 		{
 			{"Chats", []key.Binding{k.Up, k.Down, k.OpenChat}},
-			{"Compose", []key.Binding{k.Send, k.Back}},
+			{"Compose", []key.Binding{k.Send, k.Newline, k.Editor, k.Back}},
 		},
 		{
-			{"Messages", []key.Binding{k.Down, k.Up, k.Top, k.Bottom, k.HalfDown, k.HalfUp, k.NextMedia, k.PrevMedia, k.OpenMedia}},
+			{"Messages", []key.Binding{k.Down, k.Up, k.Top, k.Bottom, k.HalfDown, k.HalfUp, k.Actions, k.Copy, k.NextMedia, k.PrevMedia, k.OpenMedia}},
 		},
 	}
 }
@@ -141,9 +149,9 @@ func (m Model) contextBindings() []key.Binding {
 	case focusList:
 		return []key.Binding{k.OpenChat, k.Filter, k.People, k.Compose, k.NextPane, k.Help, k.Quit}
 	case focusMessages:
-		return []key.Binding{k.Down, k.NextMedia, k.OpenMedia, k.Compose, k.PaneLeft, k.Help, k.Quit}
+		return []key.Binding{k.Actions, k.Copy, k.OpenMedia, k.NextMedia, k.Compose, k.Help, k.Quit}
 	default:
-		return []key.Binding{k.Send, k.Back, k.NextPane}
+		return []key.Binding{k.Send, k.Newline, k.Editor, k.Back}
 	}
 }
 

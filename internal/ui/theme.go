@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -97,6 +98,7 @@ func newComposer() textarea.Model {
 	composer.BlurredStyle.Placeholder = lipgloss.NewStyle().Foreground(muted)
 	composer.SetHeight(2)
 	composer.CharLimit = 4000
+	composer.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("alt+enter", "ctrl+j"))
 	return composer
 }
 
