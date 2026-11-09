@@ -6,59 +6,71 @@ Unofficial terminal client for Facebook Messenger.
 
 The recording uses made-up chats and names.
 
-lazyfmess is not affiliated with, endorsed by, or sponsored by Meta Platforms, Inc. Messenger is a trademark of Meta Platforms, Inc.
+> [!WARNING]
+> lazyfmess is not affiliated with, endorsed by, or sponsored by Meta Platforms, Inc. Meta may restrict or log out accounts that use unofficial clients. Read [Limitations](#limitations) before logging in.
 
 ## Features
 
-- Inbox, chat, and composer panels with numbered frames, a context key bar, and popups for errors, confirmations, and menus
+- Chats, messages, and compose panels with keyboard navigation, popups, and a context key bar
 - Regular and end-to-end encrypted chats, with live delivery of new messages
-- Replies, reactions, editing, and unsending
-- Unread markers, read receipts ("Seen"), and typing indicators
-- Image, video, and file attachments: open received media in the system viewer, send files from disk
-- People search, inbox filter, and mute
+- Replies, reactions, editing and unsending, read receipts, and typing indicators
+- Image, video, and file attachments
+- People search, inbox filter, unread tracking, and mute
 - Encrypted history download with the Messenger secure storage PIN
-- Local SQLite cache, so the interface opens immediately with stored chats while it connects
+- Instant startup from a local SQLite cache while it connects in the background
 
-## Requirements
+## Install
 
-- Go 1.27.3, or the Nix flake in this repository
-- A Messenger account (see [Login](#login))
+Download the archive for the platform from the [releases page](https://github.com/samjoshuadud/lazyfmess/releases), extract it, and run `lazyfmess` (`lazyfmess.exe` on Windows). Check downloads against `SHA256SUMS`.
 
-## Build
+<details>
+<summary>Build from source</summary>
+
+Requires Go 1.27.3, or the Nix flake in this repository (`nix develop`).
 
 ```bash
 go build -o lazyfmess ./cmd/lazyfmess
+```
+
+`go run ./cmd/lazyfmess` also works, but it compiles the program before every launch.
+
+</details>
+
+## Quick start
+
+```bash
 ./lazyfmess
 ```
 
-With Nix:
-
-```bash
-nix develop
-go build -o lazyfmess ./cmd/lazyfmess
-```
-
-`go run ./cmd/lazyfmess` also works, but it compiles the program before every launch, so startup is slower.
+1. Pick a login option on the login screen (see [Login](#login)).
+2. Wait for "connecting to Messenger…" to finish in the bottom bar.
+3. Press `?` for every key.
 
 ## Login
 
-Without a saved session, lazyfmess opens a login screen with these options. Read [Limitations](#limitations) first: each option carries some account risk.
+Without a saved session, lazyfmess opens a login screen with three options:
 
 | Option | How it works |
 |---|---|
-| Log in with Messenger account | Uses the same login as the Messenger mobile app. Email and password, two-factor codes, and "approve from another device" prompts appear in the terminal. The password goes only to Meta and is never stored. |
-| Import cookies from a browser | Reads the messenger.com or facebook.com session from a browser profile that is logged in. Firefox works directly. Chromium-based browsers work when their cookies are not locked in the system keyring. Linux only. |
+| Log in with Messenger account | Acts as the Messenger mobile app. Password, two-factor, and "approve from another device" steps appear in the terminal. The password goes only to Meta and is never stored. |
+| Import cookies from a browser | Reads the messenger.com or facebook.com session from a logged-in browser profile. Linux only. |
 | Paste browser cookies | Accepts a cookie export pasted into the screen. |
+
+The session stays saved across restarts, and lazyfmess keeps its cookies refreshed. When a session ends for good, the login screen opens again. To log out, quit lazyfmess and delete `cookies.json` from the data directory (listed under "Data directory" below).
+
+<details>
+<summary>How sessions are kept and renewed</summary>
 
 Account login keeps a long-lived mobile session token. When the web cookies expire, lazyfmess uses that token to get fresh cookies without asking again. The session ends only when it is revoked, for example by a password change or by logging out of all sessions in the Facebook security settings.
 
-Cookie logins depend on the browser session they came from. Export or import from a private window, then close it without logging out; logging out ends the exported session as well. During use, lazyfmess saves the refreshed cookies Messenger sends back, so the session keeps working across restarts.
+Cookie logins depend on the browser session they came from. Export or import from a private window, then close it without logging out; logging out ends the exported session as well. During use, lazyfmess saves the refreshed cookies Messenger sends back.
 
 If Meta asks for a security check, or a step that needs a web page such as reCAPTCHA, finish it in a browser or the official app, then log in again or use the cookie options.
 
-When a session expires and cannot be renewed, the login screen opens again. To log out, quit lazyfmess and delete `cookies.json` from the data directory.
+</details>
 
-### Cookie file format
+<details>
+<summary>Cookie file format</summary>
 
 The session is stored in `cookies.json`. A browser export can also be placed there directly. The array form picks `messenger` or `facebook` from the cookie domain:
 
@@ -75,49 +87,43 @@ The object form names the platform explicitly:
 ```json
 {
   "platform": "messenger",
-  "cookies": {
-    "xs": "...",
-    "c_user": "...",
-    "datr": "..."
-  }
+  "cookies": {"xs": "...", "c_user": "...", "datr": "..."}
 }
 ```
 
 `platform` accepts `messenger`, `facebook`, `facebook-tor`, `messenger-lite`, and `messenger-lite-android`. After an account login, the file also holds a `native_session` entry with the mobile session token.
 
-## Usage
-
-```bash
-./lazyfmess [-data-dir DIR] [-pin 123456] [-verbose]
-```
-
-| Flag | Effect |
-|---|---|
-| `-data-dir DIR` | Use `DIR` instead of the default data directory |
-| `-pin 123456` | Unlock encrypted history without the PIN prompt |
-| `-verbose` | Write trace-level protocol logs to `lazyfmess.log` |
-
-The interface opens right away with the chats stored locally and connects in the background. The bottom bar shows "connecting to Messenger…" and then "syncing history…" while older chats download, and the panels show "Loading chats…" or "Loading messages…" until their data arrives. Actions taken before the connection is ready wait for it.
+</details>
 
 ## Keys
 
-The bottom bar always lists the keys for the focused panel, and `?` shows all of them.
+The bottom bar lists the keys for the focused panel, and `?` shows all of them.
+
+| Key | Action |
+|---|---|
+| `1` `2` `3` | Jump to the chats, messages, or compose panel |
+| `j` `k` | Move through chats or messages |
+| `enter` | Open a chat, open the message menu, or send |
+| `i` | Write a message |
+| `r` `+` | Reply to or react to the selected message |
+| `s` | Search people |
+| `?` | Show all keys |
+| `q` | Quit |
+
+<details>
+<summary>All keys</summary>
 
 **Anywhere**
 
 | Key | Action |
 |---|---|
-| `1` `2` `3` | Jump to the chats, messages, or compose panel |
 | `tab` / `shift+tab` | Next or previous panel |
 | `h` `l` | Panel left or right |
 | `esc` | Back to the chats panel |
 | `i` `a` `c` | Focus the composer |
-| `s` | Search Messenger people and open a chat |
 | `A` | Send a file to the open chat |
 | `U` | Unlock encrypted history with the PIN |
 | `/` | Filter the inbox |
-| `?` | Show all keys |
-| `q` | Quit |
 
 **Chats panel**
 
@@ -131,12 +137,9 @@ The bottom bar always lists the keys for the focused panel, and `?` shows all of
 
 | Key | Action |
 |---|---|
-| `j` `k` | Select the next or previous message (`▌` marks it) |
 | `g` `G` | First or last message |
 | `ctrl+d` `ctrl+u` | Scroll half a page |
 | `enter` `x` | Action menu for the selected message |
-| `r` | Reply |
-| `+` | React; picking the current reaction removes it |
 | `e` | Edit an own message |
 | `d` | Unsend an own message, after confirmation |
 | `y` | Copy the message text (OSC 52 terminal clipboard) |
@@ -154,7 +157,21 @@ The bottom bar always lists the keys for the focused panel, and `?` shows all of
 
 The mouse wheel scrolls, and a click focuses a panel.
 
-## Chat behavior
+</details>
+
+<details>
+<summary>Command-line flags</summary>
+
+| Flag | Effect |
+|---|---|
+| `-data-dir DIR` | Use `DIR` instead of the default data directory |
+| `-pin 123456` | Unlock encrypted history without the PIN prompt |
+| `-verbose` | Write trace-level protocol logs to `lazyfmess.log` |
+
+</details>
+
+<details>
+<summary>Chat behavior</summary>
 
 - Unread chats show in bold with a `●` marker, and the bottom bar counts them.
 - The latest outgoing message shows "Seen" once the other person reads it, or "Seen by N" in a group.
@@ -163,15 +180,21 @@ The mouse wheel scrolls, and a click focuses a panel.
 - Attachments up to 25 MB can be sent. Images and videos go as media, other files as documents. `~` expands to the home directory.
 - Errors open in a popup that Enter or Esc dismisses. Short notices, such as reconnects, appear briefly in the bottom bar.
 
-## Encrypted history
+</details>
+
+<details>
+<summary>Encrypted history</summary>
 
 Encrypted chats receive new messages live with or without a PIN. Older encrypted history needs the same six-digit secure storage PIN as the Messenger web client.
 
-When a backup exists, lazyfmess asks for the PIN at startup. Esc skips the unlock, and `U` opens the PIN prompt again later; when nothing is locked, `U` shows a short notice instead. After unlock, lazyfmess pages older inbox threads and downloads encrypted history in the background, and opening a chat requests its older messages. The PIN is not stored; only the enrolled history device is kept in `history-device.json`.
+When a backup exists, lazyfmess asks for the PIN at startup. Esc skips the unlock, and `U` opens the PIN prompt again later; when nothing is locked, `U` shows a short notice instead. After unlock, lazyfmess downloads older history in the background, and opening a chat requests its older messages. The PIN is not stored; only the enrolled history device is kept in `history-device.json`.
 
-## Data directory
+</details>
 
-The default is `os.UserConfigDir()/lazyfmess`, which is `$XDG_CONFIG_HOME/lazyfmess` on Linux. An older install that used `$XDG_CONFIG_HOME/fmesstui` can point `-data-dir` at that directory.
+<details>
+<summary>Data directory</summary>
+
+The default is `os.UserConfigDir()/lazyfmess`, which is `$XDG_CONFIG_HOME/lazyfmess` on Linux. `-data-dir` selects another directory.
 
 | File | Contents |
 |---|---|
@@ -182,38 +205,46 @@ The default is `os.UserConfigDir()/lazyfmess`, which is `$XDG_CONFIG_HOME/lazyfm
 | `messages.db` | Local cache of chats and messages (SQLite, WAL mode) |
 | `lazyfmess.log` | Protocol logs |
 
-These files grant access to the account. Keep them private and never commit them.
+These files grant access to the account. Keep them private and never commit or share them.
+
+</details>
 
 ## Limitations
 
-### Account safety
+- **Account risk.** Meta watches for automated or unusual activity. Any login method can lead to a security check, a forced logout, or a temporary restriction, and users of [mautrix-meta](https://github.com/mautrix/meta/issues/44) have occasionally reported disabled accounts. Two-factor authentication, a home internet connection instead of a VPN or cloud server, and avoiding repeated logins reduce the risk.
+- **Account login appears as a phone.** Facebook lists the session as a Google Pixel 7, so the first login may trigger a "Was this you?" or "Your account may have been hacked" alert. Confirming the login clears it.
+- **Two-factor codes fail in this version.** Use "approve from another device" instead until the next mautrix-meta release.
+- **Cookie sessions can be revoked.** Logging out of the source browser ends them, and cookies from a browser other than Chrome on Linux may be revoked after some days.
+- **Browser import** works on Linux only, and not with browsers that keep cookies in the system keyring.
+- **Encrypted media** shows as placeholders and cannot be opened.
+- **One account per data directory.** Use a separate `-data-dir` for each account.
+- **macOS and Windows** builds are compiled but not tested.
 
-lazyfmess is an unofficial client. Meta does not support third-party clients and watches for automated or unusual account activity. Any login method can lead to a security check, a forced logout, or a temporary restriction. Reports from users of [mautrix-meta](https://github.com/mautrix/meta/issues/44), the library lazyfmess uses, include "We suspect automated behaviour on your account" warnings, captchas, revoked sessions, and occasionally a disabled account. Two-factor authentication on the account, a home internet connection instead of a VPN or cloud server, and avoiding repeated logins reduce the risk.
+<details>
+<summary>Why these limitations exist</summary>
 
-### Account login
+**Account login.** It works by acting as the official Messenger Android app, so Meta sees a new phone. A new phone signing in from a desktop's network can look like a stolen password, which is what the security alert reacts to. Every account login registers another phone session, so one long-lived session is less suspicious than repeated logins. reCAPTCHA, Google sign-in, and Meta security checkpoints are web pages that a terminal cannot show.
 
-- **It appears as a phone.** Account login works by acting as the official Messenger Android app, so Facebook lists the session as a Google Pixel 7, not as a computer. A new phone signing in from a desktop's network can look like a stolen password. The first login may produce a "Was this you?" or "Your account may have been hacked" alert. Confirming the login as legitimate clears it.
-- **Two-factor codes fail in this version.** Meta changed its code entry screen, and the bundled mautrix-meta v0.2610.0 cannot process it, so a typed two-factor code ends with an `expected int64 ... got float64` error. The fix exists upstream and arrives with the next mautrix-meta release. Approving the login from another device works in the meantime.
-- **Some checks need a browser.** reCAPTCHA, Google sign-in, and Meta security checkpoints cannot be completed in a terminal. Finish them in a browser or the official app, then log in again.
-- **Each login is a new device.** Every account login registers another phone session on the account. Keeping one long-lived session is less suspicious than logging in repeatedly.
+**Two-factor codes.** Meta changed its code entry screen, and the bundled mautrix-meta v0.2610.0 cannot process it, so a typed code ends with an `expected int64 ... got float64` error. The fix is merged upstream and arrives with the next mautrix-meta release.
 
-### Cookie login
+**Cookie sessions.** lazyfmess identifies itself to Meta as Chrome on Linux. Cookies from another browser or operating system can make the session look like it moved, which Meta may treat as a stolen session. Cookies from a Chromium-based browser on Linux match best.
 
-- **Sessions depend on the browser session.** Logging out of the browser session the cookies came from ends the lazyfmess session too.
-- **The browser identity differs.** lazyfmess identifies itself to Meta as Chrome on Linux. Cookies from a different browser or operating system can make the session look moved, and Meta may revoke it after some days. Cookies from a Chromium-based browser on Linux match best.
-- **Browser import is limited.** Import works on Linux only. Chromium-based browsers that keep cookies in the system keyring, which includes many Chrome and Brave setups, cannot be read; paste the cookie export instead.
+**Browser import.** Firefox stores cookies in plain form. Chromium-based browsers often encrypt them with a key from the system keyring, which lazyfmess cannot read yet; pasting an export works instead.
 
-### Other
+**Data directory.** The encryption device and message cache belong to the account that created them.
 
-- Received images and videos in encrypted chats show as text placeholders and cannot be opened.
-- Logging in to a different account in the same data directory reuses the previous account's encryption keys and message cache. Use a separate `-data-dir` for each account.
-- The background history sync downloads older messages for every chat after startup, which is heavy on large inboxes.
-- The macOS and Windows builds are compiled but not tested.
+</details>
+
+## Legal
+
+lazyfmess is an independent, unofficial project. It is not affiliated with, endorsed by, or sponsored by Meta Platforms, Inc. Facebook, Messenger, and Meta are trademarks of Meta Platforms, Inc., used here only to describe what the software works with.
+
+Use of an unofficial client may conflict with Meta's Terms of Service, and the account owner carries that risk. lazyfmess is provided without any warranty, as stated in sections 15 and 16 of the license.
 
 ## License
 
 Copyright (C) 2026 lazyfmess authors
 
-Licensed under the GNU Affero General Public License, version 3 or any later version. See [LICENSE](LICENSE).
+lazyfmess is free software: it can be redistributed and modified under the terms of the GNU Affero General Public License, version 3 or any later version. See [LICENSE](LICENSE). The complete source code for each release is available from the matching tag in this repository.
 
-lazyfmess depends on [mautrix-meta](https://github.com/mautrix/meta) (`pkg/messagix`), which is licensed under the GNU AGPL, version 3. Keep its copyright and license notices intact.
+lazyfmess builds on [mautrix-meta](https://github.com/mautrix/meta) (GNU AGPL v3) and its dependencies, including [whatsmeow](https://github.com/tulir/whatsmeow) and [mautrix-go](https://github.com/mautrix/go) (Mozilla Public License 2.0) and [libsignal-protocol-go](https://github.com/tulir/libsignal-protocol-go) (GNU GPL v3), as well as libraries under the MIT, BSD, ISC, and Apache 2.0 licenses. Release archives include `THIRD_PARTY_LICENSES.txt` with the full license text of every bundled dependency.
