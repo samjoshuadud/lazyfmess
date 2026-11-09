@@ -2,11 +2,14 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"lazyfmess/internal/store"
 )
@@ -179,4 +182,122 @@ func TestPeopleSearchOpensChat(t *testing.T) {
 		t.Fatalf("opened: %+v", searcher.opened)
 	}
 	_ = cmd
+}
+
+func newTestModel(t *testing.T, threads int, messagesPerThread int) Model {
+	t.Helper()
+	ctx := context.Background()
+	s, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	base := time.UnixMilli(1_700_000_000_000)
+	for i := 1; i <= threads; i++ {
+		id := int64(i)
+		if err := s.UpsertThread(ctx, store.Thread{ID: id, Title: fmt.Sprintf("Thread %d", i), UpdatedAt: base.Add(time.Duration(i) * time.Minute)}); err != nil {
+			t.Fatalf("UpsertThread: %v", err)
+		}
+		for j := 0; j < messagesPerThread; j++ {
+			if err := s.UpsertMessage(ctx, store.Message{ID: fmt.Sprintf("m%d-%d", i, j), ThreadID: id, SenderID: 2, Text: fmt.Sprintf("line %d", j), Timestamp: base.Add(time.Duration(j) * time.Second)}); err != nil {
+				t.Fatalf("UpsertMessage: %v", err)
+			}
+		}
+	}
+	m := New(ctx, s, stubSender{id: 1}, nil, nil, nil, nil, Config{})
+	m = drain(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	return drain(t, m, m.loadThreads())
+}
+
+func drain(t *testing.T, m Model, msg tea.Msg) Model {
+	t.Helper()
+	queue := []tea.Msg{msg}
+	for len(queue) > 0 {
+		next := queue[0]
+		queue = queue[1:]
+		model, cmd := m.Update(next)
+		m = model.(Model)
+		queue = append(queue, runCmd(cmd)...)
+	}
+	return m
+}
+
+func runCmd(cmd tea.Cmd) []tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	msg := cmd()
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		var out []tea.Msg
+		for _, c := range batch {
+			out = append(out, runCmd(c)...)
+		}
+		return out
+	}
+	if msg == nil {
+		return nil
+	}
+	if _, ok := msg.(tea.QuitMsg); ok {
+		return nil
+	}
+	if strings.HasPrefix(fmt.Sprintf("%T", msg), "cursor.") {
+		return nil
+	}
+	return []tea.Msg{msg}
+}
+
+func TestEscClearsAppliedFilter(t *testing.T) {
+	t.Parallel()
+	m := newTestModel(t, 3, 0)
+	m.list.SetFilterText("Thread 2")
+	if m.list.FilterState() != list.FilterApplied {
+		t.Fatalf("filter state: %v", m.list.FilterState())
+	}
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = model.(Model)
+	if m.list.FilterState() != list.Unfiltered {
+		t.Fatalf("filter state after esc: %v", m.list.FilterState())
+	}
+}
+
+func TestRefreshKeepsScrollPosition(t *testing.T) {
+	t.Parallel()
+	m := newTestModel(t, 1, 80)
+	if !m.viewport.AtBottom() {
+		t.Fatal("expected first load at bottom")
+	}
+	m.viewport.GotoTop()
+	m = drain(t, m, RefreshMsg{})
+	if m.viewport.YOffset != 0 {
+		t.Fatalf("refresh moved viewport to %d", m.viewport.YOffset)
+	}
+}
+
+func TestHeaderUsesOpenThreadWhenFiltered(t *testing.T) {
+	t.Parallel()
+	m := newTestModel(t, 3, 0)
+	m.selectedID = 1
+	m.list.SetFilterText("Thread 3")
+	if !strings.Contains(m.renderConversation(), "Thread 1") {
+		t.Fatal("header should show the open thread, not the filtered cursor")
+	}
+}
+
+func TestViewFitsTerminal(t *testing.T) {
+	t.Parallel()
+	sizes := []struct{ w, h int }{{80, 24}, {100, 30}, {200, 50}, {60, 15}}
+	for _, size := range sizes {
+		m := newTestModel(t, 5, 15)
+		m = drain(t, m, tea.WindowSizeMsg{Width: size.w, Height: size.h})
+		lines := strings.Split(m.View(), "\n")
+		if len(lines) > size.h {
+			t.Errorf("%dx%d: %d lines", size.w, size.h, len(lines))
+		}
+		for i, line := range lines {
+			if w := lipgloss.Width(line); w > size.w {
+				t.Errorf("%dx%d: line %d is %d wide", size.w, size.h, i, w)
+				break
+			}
+		}
+	}
 }

@@ -23,11 +23,8 @@ type messagesLoadedMsg struct {
 }
 
 type sendFinishedMsg struct {
-	pendingID string
-	threadID  int64
-	result    SendResult
-	text      string
-	err       error
+	threadID int64
+	err      error
 }
 
 type RefreshMsg struct{}
@@ -50,14 +47,6 @@ func renderMessages(messages []store.Message, width int, selfID int64, mediaFocu
 	if width <= 0 {
 		width = 40
 	}
-	if len(messages) == 0 {
-		return lipgloss.NewStyle().
-			Width(width).
-			PaddingLeft(chatSidePad).
-			PaddingRight(chatSidePad).
-			Render(statusStyle.Render("No messages yet"))
-	}
-
 	inner := width - chatSidePad*2
 	if inner < 16 {
 		inner = 16
@@ -101,7 +90,11 @@ func renderMessages(messages []store.Message, width int, selfID int64, mediaFocu
 		first = false
 	}
 	if first {
-		return statusStyle.Render("No messages yet")
+		return lipgloss.NewStyle().
+			Width(width).
+			PaddingLeft(chatSidePad).
+			PaddingRight(chatSidePad).
+			Render(statusStyle.Render("No messages yet"))
 	}
 	return b.String()
 }
@@ -130,18 +123,9 @@ func messageBody(msg store.Message, mediaFocused bool) string {
 }
 
 func mediaPlaceholder(msg store.Message, focused bool) string {
-	label := "[image]"
-	switch msg.MediaKind {
-	case "video":
-		if msg.MediaDurationMs > 0 {
-			label = fmt.Sprintf("[video %s]", formatMediaDuration(msg.MediaDurationMs))
-		} else {
-			label = "[video]"
-		}
-	case "image":
-		label = "[image]"
-	default:
-		label = "[" + msg.MediaKind + "]"
+	label := "[" + msg.MediaKind + "]"
+	if msg.MediaKind == "video" && msg.MediaDurationMs > 0 {
+		label = fmt.Sprintf("[video %s]", formatMediaDuration(msg.MediaDurationMs))
 	}
 	if focused {
 		return "▸ " + label

@@ -3,7 +3,6 @@ package ui
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -107,8 +106,4 @@ func (m Model) renderPINModal() string {
 		),
 	)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, card)
-}
-
-func pinBlink() tea.Cmd {
-	return textinput.Blink
 }

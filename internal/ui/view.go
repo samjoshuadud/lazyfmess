@@ -1,10 +1,11 @@
 package ui
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"lazyfmess/internal/store"
 )
 
 func (m Model) View() string {
@@ -32,7 +33,7 @@ func (m Model) renderBase() string {
 	m.list.Title = leftTitle
 
 	left := sidebarStyle.
-		Width(m.leftWidth).
+		Width(m.leftWidth - 1).
 		Height(m.height).
 		Render(m.list.View())
 
@@ -46,11 +47,10 @@ func (m Model) renderBase() string {
 
 func (m Model) renderConversation() string {
 	title := "No chat selected"
-	if item, ok := m.list.SelectedItem().(threadItem); ok {
-		title = item.thread.Title
-		if title == "" {
-			title = fmt.Sprintf("Chat %d", item.thread.ID)
-		}
+	if t, ok := m.currentThread(); ok {
+		title = t.Title
+	} else if m.selectedID != 0 {
+		title = threadTitle(store.Thread{ID: m.selectedID})
 	}
 	if m.focus == focusMessages {
 		title = focusMark.Render("●") + " " + title
@@ -77,7 +77,7 @@ func (m Model) renderConversation() string {
 		status = errorStatusStyle.Width(m.rightWidth).Render(truncate(statusText, m.rightWidth-2))
 	}
 
-	help := helpStyle.Width(m.rightWidth).Render(m.helpLine())
+	help := helpStyle.Width(m.rightWidth).Render(truncate(m.helpLine(), m.rightWidth-2))
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,

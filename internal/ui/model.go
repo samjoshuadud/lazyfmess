@@ -90,6 +90,7 @@ type Model struct {
 	searchResults []PersonHit
 	searchIndex   int
 	selectedID    int64
+	loadedID      int64
 	mediaFocusID  string
 	status        string
 	toast         string
@@ -175,15 +176,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case bootMsg:
 		if msg.err != nil {
 			m.status = msg.err.Error()
-			m.toast = msg.err.Error()
 			m.kickHistorySync()
-			return m, tea.Tick(4*time.Second, func(time.Time) tea.Msg {
-				return toastExpiredMsg{message: msg.err.Error()}
-			})
+			return m.Update(toastMsg{message: msg.err.Error()})
 		}
 		if msg.askPIN {
 			m.openPINModal()
-			return m, pinBlink()
+			return m, textinput.Blink
 		}
 		m.kickHistorySync()
 		return m, nil
@@ -230,11 +228,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		items := make([]list.Item, 0, len(msg.threads))
 		selectedIndex := 0
 		for i, t := range msg.threads {
-			title := t.Title
-			if title == "" {
-				title = fmt.Sprintf("Chat %d", t.ID)
-				t.Title = title
-			}
+			t.Title = threadTitle(t)
 			items = append(items, threadItem{thread: t})
 			if t.ID == selected {
 				selectedIndex = i
@@ -248,7 +242,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if selected == 0 && len(items) > 0 {
 			if item, ok := m.list.SelectedItem().(threadItem); ok {
 				m.selectedID = item.thread.ID
-				return m, tea.Batch(m.loadMessages(item.thread.ID), m.fetchHistory(item.thread))
+				return m, m.loadMessages(item.thread.ID)
 			}
 		}
 		return m, nil
@@ -260,10 +254,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.threadID != m.selectedID {
 			return m, nil
 		}
+		follow := msg.threadID != m.loadedID || m.viewport.AtBottom()
+		m.loadedID = msg.threadID
 		m.messages = msg.messages
 		m.ensureMediaFocus()
 		m.refreshViewport()
-		m.viewport.GotoBottom()
+		if follow {
+			m.viewport.GotoBottom()
+		}
 		return m, nil
 	case mediaOpenedMsg:
 		if msg.err != nil {
@@ -283,35 +281,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = "history synced"
 		return m, tea.Batch(m.loadThreads, m.loadMessages(msg.threadID))
 	case sendFinishedMsg:
-		if msg.err != nil {
-			_ = m.store.UpsertMessage(m.ctx, store.Message{
-				ID:        msg.pendingID,
-				ThreadID:  msg.threadID,
-				SenderID:  m.sender.AccountID(),
-				Text:      msg.text,
-				Timestamp: time.Now(),
-				Pending:   false,
-				Error:     msg.err.Error(),
-			})
-			m.status = msg.err.Error()
-			return m, m.loadMessages(msg.threadID)
-		}
-		_ = m.store.DeleteMessage(m.ctx, msg.pendingID)
-		_ = m.store.UpsertMessage(m.ctx, store.Message{
-			ID:        msg.result.MessageID,
-			ThreadID:  msg.threadID,
-			SenderID:  m.sender.AccountID(),
-			Text:      msg.text,
-			Timestamp: msg.result.Timestamp,
-		})
-		_ = m.store.UpsertThread(m.ctx, store.Thread{
-			ID:          msg.threadID,
-			Title:       m.selectedTitle(),
-			LastPreview: msg.text,
-			ThreadType:  m.selectedThreadType(),
-			UpdatedAt:   msg.result.Timestamp,
-		})
 		m.status = "sent"
+		if msg.err != nil {
+			m.status = msg.err.Error()
+		}
 		return m, tea.Batch(m.loadThreads, m.loadMessages(msg.threadID))
 	}
 
@@ -363,10 +336,10 @@ func (m Model) updateMain(msg tea.Msg) (Model, tea.Cmd) {
 			m.cycleFocus(-1)
 			return m, nil
 		case "esc":
-			if m.focus == focusComposer || m.focus == focusMessages {
-				m.setFocus(focusList)
-				return m, nil
+			if m.focus == focusList {
+				return m.updateList(msg)
 			}
+			m.setFocus(focusList)
 			return m, nil
 		case "i", "a", "c":
 			if m.focus != focusComposer && m.selectedID != 0 {
@@ -382,11 +355,7 @@ func (m Model) updateMain(msg tea.Msg) (Model, tea.Cmd) {
 				}
 			}
 			if m.focus == focusComposer && m.selectedID != 0 {
-				cmd, ok := m.queueSend()
-				if ok {
-					return m, tea.Batch(m.loadMessages(m.selectedID), cmd)
-				}
-				return m, nil
+				return m, m.queueSend()
 			}
 		case "l", "right":
 			if m.focus == focusList {
@@ -437,7 +406,7 @@ func (m Model) updateList(msg tea.Msg) (Model, tea.Cmd) {
 	cmds := []tea.Cmd{cmd}
 	if item, ok := m.list.SelectedItem().(threadItem); ok && item.thread.ID != prevSelected {
 		m.selectedID = item.thread.ID
-		cmds = append(cmds, m.loadMessages(item.thread.ID), m.fetchHistory(item.thread))
+		cmds = append(cmds, m.loadMessages(item.thread.ID))
 	}
 	return m, tea.Batch(cmds...)
 }
@@ -514,11 +483,7 @@ func (m *Model) applyFocus() {
 }
 
 func (m *Model) refreshViewport() {
-	selfID := int64(0)
-	if m.sender != nil {
-		selfID = m.sender.AccountID()
-	}
-	m.viewport.SetContent(renderMessages(m.messages, m.rightWidth, selfID, m.mediaFocusID))
+	m.viewport.SetContent(renderMessages(m.messages, m.rightWidth, m.selfAccountID(), m.mediaFocusID))
 }
 
 func (m *Model) scrollToMediaFocus() {
@@ -598,30 +563,18 @@ func (m *Model) cycleMediaFocus(delta int) {
 
 func (m Model) openFocusedMedia() tea.Cmd {
 	m.ensureMediaFocus()
-	if m.mediaFocusID == "" {
-		return func() tea.Msg {
-			return mediaOpenedMsg{err: fmt.Errorf("no media in this chat")}
-		}
-	}
-	var target store.Message
-	found := false
 	for _, msg := range m.messages {
 		if msg.ID == m.mediaFocusID {
-			target = msg
-			found = true
-			break
-		}
-	}
-	if !found {
-		return func() tea.Msg {
-			return mediaOpenedMsg{err: fmt.Errorf("no media in this chat")}
+			return func() tea.Msg {
+				if m.media == nil {
+					return mediaOpenedMsg{err: fmt.Errorf("media open is unavailable")}
+				}
+				return mediaOpenedMsg{err: m.media.OpenMedia(m.ctx, msg)}
+			}
 		}
 	}
 	return func() tea.Msg {
-		if m.media == nil {
-			return mediaOpenedMsg{err: fmt.Errorf("media open is unavailable")}
-		}
-		return mediaOpenedMsg{err: m.media.OpenMedia(m.ctx, target)}
+		return mediaOpenedMsg{err: fmt.Errorf("no media in this chat")}
 	}
 }
 
@@ -647,52 +600,80 @@ func (m Model) fetchHistory(thread store.Thread) tea.Cmd {
 	}
 }
 
-func (m *Model) queueSend() (tea.Cmd, bool) {
+func (m *Model) queueSend() tea.Cmd {
 	text := strings.TrimSpace(m.composer.Value())
 	if text == "" || m.sender == nil || m.selectedID == 0 {
-		return nil, false
+		return nil
 	}
 	thread, err := m.store.GetThread(m.ctx, m.selectedID)
 	if err != nil {
-		return func() tea.Msg {
-			return sendFinishedMsg{threadID: m.selectedID, text: text, err: err}
-		}, true
+		m.status = fmt.Sprintf("send: %v", err)
+		return nil
 	}
-	pendingID := fmt.Sprintf("pending-%d", time.Now().UnixNano())
-	_ = m.store.UpsertMessage(m.ctx, store.Message{
-		ID:        pendingID,
+	pending := store.Message{
+		ID:        fmt.Sprintf("pending-%d", time.Now().UnixNano()),
 		ThreadID:  thread.ID,
 		SenderID:  m.sender.AccountID(),
 		Text:      text,
 		Timestamp: time.Now(),
 		Pending:   true,
-	})
+	}
+	if err := m.store.UpsertMessage(m.ctx, pending); err != nil {
+		m.status = fmt.Sprintf("send: %v", err)
+		return nil
+	}
 	m.composer.Reset()
 	m.status = "sending"
-	return func() tea.Msg {
-		result, err := m.sender.SendText(m.ctx, thread, text)
-		return sendFinishedMsg{
-			pendingID: pendingID,
-			threadID:  thread.ID,
-			result:    result,
-			text:      text,
-			err:       err,
+	send := func() tea.Msg {
+		return sendFinishedMsg{threadID: thread.ID, err: m.sendPending(thread, pending)}
+	}
+	return tea.Batch(m.loadMessages(thread.ID), send)
+}
+
+func (m Model) sendPending(thread store.Thread, pending store.Message) error {
+	result, err := m.sender.SendText(m.ctx, thread, pending.Text)
+	if err != nil {
+		pending.Pending = false
+		pending.Error = err.Error()
+		if storeErr := m.store.UpsertMessage(m.ctx, pending); storeErr != nil {
+			return fmt.Errorf("%w; save failed message: %v", err, storeErr)
 		}
-	}, true
+		return err
+	}
+	if err := m.store.DeleteMessage(m.ctx, pending.ID); err != nil {
+		return fmt.Errorf("remove pending message: %w", err)
+	}
+	if err := m.store.UpsertMessage(m.ctx, store.Message{
+		ID:        result.MessageID,
+		ThreadID:  thread.ID,
+		SenderID:  pending.SenderID,
+		Text:      pending.Text,
+		Timestamp: result.Timestamp,
+	}); err != nil {
+		return fmt.Errorf("save sent message: %w", err)
+	}
+	thread.LastPreview = pending.Text
+	thread.UpdatedAt = result.Timestamp
+	if err := m.store.UpsertThread(m.ctx, thread); err != nil {
+		return fmt.Errorf("update thread: %w", err)
+	}
+	return nil
 }
 
-func (m Model) selectedTitle() string {
-	if item, ok := m.list.SelectedItem().(threadItem); ok {
-		return item.thread.Title
+func (m Model) currentThread() (store.Thread, bool) {
+	for _, item := range m.list.Items() {
+		if t, ok := item.(threadItem); ok && t.thread.ID == m.selectedID {
+			return t.thread, true
+		}
 	}
-	return ""
+	return store.Thread{}, false
 }
 
-func (m Model) selectedThreadType() int64 {
-	if item, ok := m.list.SelectedItem().(threadItem); ok {
-		return item.thread.ThreadType
+func threadTitle(t store.Thread) string {
+	if t.Title != "" {
+		return t.Title
 	}
-	return 0
+	return fmt.Sprintf("Chat %d", t.ID)
 }
 
 type App struct {
