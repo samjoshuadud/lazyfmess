@@ -39,7 +39,10 @@ func (m Model) renderBase() string {
 	left := frame(chatsTitle, m.focus == focusList, m.leftWidth, bodyH, m.list.View())
 	messages := frame("[2] "+m.conversationTitle(), m.focus == focusMessages, m.rightWidth, bodyH-composerFrameHeight, m.viewport.View())
 	composeTitle := "[3] Compose"
-	if m.replyTo.ID != "" {
+	switch {
+	case m.editing.ID != "":
+		composeTitle = "[3] Edit message (esc cancels)"
+	case m.replyTo.ID != "":
 		composeTitle = "[3] Reply to " + replyName(m.replyTo, m.selfAccountID()) + " (esc cancels)"
 	}
 	if label := m.typingLabel(); label != "" {

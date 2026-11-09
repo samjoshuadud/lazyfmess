@@ -50,6 +50,9 @@ func ApplyTable(ctx context.Context, s *store.Store, tbl *table.LSTable) error {
 	if err := applyReactions(ctx, s, tbl); err != nil {
 		return err
 	}
+	if err := applyEdits(ctx, s, tbl); err != nil {
+		return err
+	}
 	return applyReadMarks(ctx, s, tbl)
 }
 
@@ -224,6 +227,8 @@ func upsertWrapped(ctx context.Context, s *store.Store, msg *table.WrappedMessag
 		ReplyToID:       msg.ReplySourceId,
 		ReplyText:       msg.ReplyMessageText,
 		ReplySenderID:   msg.ReplyToUserId,
+		Edited:          msg.EditCount > 0,
+		Unsent:          msg.IsUnsent,
 	})
 }
 
@@ -247,5 +252,7 @@ func upsertDeletedMessage(ctx context.Context, s *store.Store, msg *table.LSDele
 		ReplyToID:     msg.ReplySourceId,
 		ReplyText:     msg.ReplyMessageText,
 		ReplySenderID: msg.ReplyToUserId,
+		Edited:        msg.EditCount > 0,
+		Unsent:        msg.IsUnsent,
 	})
 }

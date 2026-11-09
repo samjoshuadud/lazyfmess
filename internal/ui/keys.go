@@ -40,6 +40,8 @@ type keyMap struct {
 	Copy      key.Binding
 	Reply     key.Binding
 	React     key.Binding
+	Edit      key.Binding
+	Unsend    key.Binding
 
 	Send    key.Binding
 	Newline key.Binding
@@ -90,6 +92,8 @@ func newKeyMap() keyMap {
 		Copy:      key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy text")),
 		Reply:     key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reply")),
 		React:     key.NewBinding(key.WithKeys("+"), key.WithHelp("+", "react")),
+		Edit:      key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit own")),
+		Unsend:    key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "unsend own")),
 
 		Send:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "send")),
 		Newline: key.NewBinding(key.WithKeys("alt+enter", "ctrl+j"), key.WithHelp("alt+enter", "newline")),
@@ -124,7 +128,7 @@ func (k keyMap) sections() [][]keySection {
 			{"Compose", []key.Binding{k.Send, k.Newline, k.Editor, k.Back}},
 		},
 		{
-			{"Messages", []key.Binding{k.Down, k.Up, k.Top, k.Bottom, k.HalfDown, k.HalfUp, k.Actions, k.Reply, k.React, k.Copy, k.NextMedia, k.PrevMedia, k.OpenMedia}},
+			{"Messages", []key.Binding{k.Down, k.Up, k.Top, k.Bottom, k.HalfDown, k.HalfUp, k.Actions, k.Reply, k.React, k.Edit, k.Unsend, k.Copy, k.NextMedia, k.PrevMedia, k.OpenMedia}},
 		},
 	}
 }

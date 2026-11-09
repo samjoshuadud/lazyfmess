@@ -273,3 +273,44 @@ func TestReactions(t *testing.T) {
 		}
 	}
 }
+
+func TestEditAndUnsend(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, err := Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	if err := s.EnsureThread(ctx, 1); err != nil {
+		t.Fatalf("EnsureThread: %v", err)
+	}
+	orig := Message{ID: "m1", ThreadID: 1, SenderID: 1, Text: "helo", Timestamp: time.UnixMilli(1)}
+	steps := []struct {
+		name   string
+		apply  func() error
+		text   string
+		edited bool
+		unsent bool
+	}{
+		{"insert", func() error { return s.UpsertMessage(ctx, orig) }, "helo", false, false},
+		{"edit", func() error { return s.EditMessage(ctx, "m1", "hello") }, "hello", true, false},
+		{"resync keeps edited", func() error { o := orig; o.Text = "hello"; return s.UpsertMessage(ctx, o) }, "hello", true, false},
+		{"unsend", func() error { return s.UnsendMessage(ctx, "m1") }, "", true, true},
+		{"resync keeps unsent", func() error { return s.UpsertMessage(ctx, orig) }, "", true, true},
+		{"edit after unsend ignored", func() error { return s.EditMessage(ctx, "m1", "back") }, "", true, true},
+	}
+	for _, step := range steps {
+		if err := step.apply(); err != nil {
+			t.Fatalf("%s: %v", step.name, err)
+		}
+		msgs, err := s.ListMessages(ctx, 1)
+		if err != nil {
+			t.Fatalf("%s: ListMessages: %v", step.name, err)
+		}
+		m := msgs[0]
+		if m.Text != step.text || m.Edited != step.edited || m.Unsent != step.unsent {
+			t.Fatalf("%s: text %q edited %v unsent %v", step.name, m.Text, m.Edited, m.Unsent)
+		}
+	}
+}

@@ -119,6 +119,19 @@ func (r reactAdapter) React(ctx context.Context, thread store.Thread, msg store.
 	return r.client.React(ctx, r.store, thread, msg, emoji)
 }
 
+type editAdapter struct {
+	client *meta.Client
+	store  *store.Store
+}
+
+func (e editAdapter) Edit(ctx context.Context, thread store.Thread, msg store.Message, text string) error {
+	return e.client.Edit(ctx, e.store, thread, msg, text)
+}
+
+func (e editAdapter) Unsend(ctx context.Context, thread store.Thread, msg store.Message) error {
+	return e.client.Unsend(ctx, e.store, thread, msg)
+}
+
 type searchAdapter struct {
 	client *meta.Client
 	store  *store.Store
@@ -239,6 +252,7 @@ func run() error {
 			Reader:   readAdapter{client: client, store: db},
 			Typing:   typingAdapter{client: client},
 			Reactor:  reactAdapter{client: client, store: db},
+			Editor:   editAdapter{client: client, store: db},
 		},
 		ui.Config{
 			PrefillPIN: *pinFlag,

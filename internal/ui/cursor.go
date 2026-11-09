@@ -108,6 +108,9 @@ func (m *Model) startReply(msg store.Message) {
 
 func (m Model) messageActions(msg store.Message) []menuItem {
 	var items []menuItem
+	if msg.Unsent {
+		return nil
+	}
 	if !msg.Pending && msg.Error == "" {
 		items = append(items,
 			menuItem{"Reply", func(m *Model) tea.Cmd { m.startReply(msg); return nil }},
@@ -119,6 +122,12 @@ func (m Model) messageActions(msg store.Message) []menuItem {
 	}
 	if strings.TrimSpace(msg.Text) != "" {
 		items = append(items, menuItem{"Copy text", func(*Model) tea.Cmd { return copyText(msg.Text) }})
+	}
+	if m.canModify(msg) {
+		if strings.TrimSpace(msg.Text) != "" {
+			items = append(items, menuItem{"Edit", func(m *Model) tea.Cmd { m.startEdit(msg); return nil }})
+		}
+		items = append(items, menuItem{"Unsend", func(m *Model) tea.Cmd { m.confirmUnsend(msg); return nil }})
 	}
 	return items
 }

@@ -62,6 +62,7 @@ type Services struct {
 	Reader   ReadMarker
 	Typing   TypingNotifier
 	Reactor  Reactor
+	Editor   MessageEditor
 }
 
 type Config struct {
@@ -85,6 +86,7 @@ type Model struct {
 	reader         ReadMarker
 	typingNotifier TypingNotifier
 	reactor        Reactor
+	messageEditor  MessageEditor
 	typing         map[int64]map[int64]time.Time
 	typingThread   int64
 	typingSentAt   time.Time
@@ -116,6 +118,7 @@ type Model struct {
 	loadedID       int64
 	cursorID       string
 	replyTo        store.Message
+	editing        store.Message
 	spans          map[string]lineSpan
 	order          []string
 	status         string
@@ -163,6 +166,7 @@ func New(ctx context.Context, s *store.Store, svc Services, cfg Config) Model {
 		reader:         svc.Reader,
 		typingNotifier: svc.Typing,
 		reactor:        svc.Reactor,
+		messageEditor:  svc.Editor,
 		typing:         make(map[int64]map[int64]time.Time),
 		onReady:        cfg.OnReady,
 		prefillPIN:     strings.TrimSpace(cfg.PrefillPIN),
@@ -333,6 +337,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "typing indicator failed"
 		}
 		return m, nil
+	case editedMsg:
+		if msg.err != nil {
+			m.showError(msg.err.Error())
+			return m, nil
+		}
+		return m, tea.Batch(m.loadThreads, m.loadMessages(msg.threadID))
 	case reactedMsg:
 		if msg.err != nil {
 			m.showError("react: " + msg.err.Error())
@@ -431,7 +441,13 @@ func (m Model) updateMain(msg tea.Msg) (Model, tea.Cmd) {
 	case key.Matches(k, keys.Back) && m.focus != focusList:
 		m.setFocus(focusList)
 		return m, nil
+	case key.Matches(k, keys.Back) && m.focus == focusComposer && m.editing.ID != "":
+		m.cancelEdit()
+		return m, nil
 	case m.focus == focusComposer:
+		if key.Matches(k, keys.Send) && m.editing.ID != "" {
+			return m, m.submitEdit()
+		}
 		if key.Matches(k, keys.Send) {
 			return m, m.queueSend()
 		}
@@ -533,6 +549,14 @@ func (m Model) updateMessages(msg tea.Msg) (Model, tea.Cmd) {
 	case key.Matches(k, keys.OpenMedia):
 		msg, _ := m.cursorMessage()
 		return m, m.track(m.openMedia(msg))
+	case key.Matches(k, keys.Edit):
+		if msg, ok := m.cursorMessage(); ok {
+			m.startEdit(msg)
+		}
+	case key.Matches(k, keys.Unsend):
+		if msg, ok := m.cursorMessage(); ok {
+			m.confirmUnsend(msg)
+		}
 	case key.Matches(k, keys.React):
 		if msg, ok := m.cursorMessage(); ok {
 			m.openReactionMenu(msg)

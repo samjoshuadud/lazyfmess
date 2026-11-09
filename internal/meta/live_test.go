@@ -148,3 +148,63 @@ func TestReactionsFromTableAndLiveEvent(t *testing.T) {
 		t.Fatalf("reactions: %+v", got)
 	}
 }
+
+func TestEditsAndUnsendsFromTableAndLiveEvents(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	if err := s.EnsureThread(ctx, 100); err != nil {
+		t.Fatalf("EnsureThread: %v", err)
+	}
+	for _, id := range []string{"a", "b", "c"} {
+		if err := s.UpsertMessage(ctx, store.Message{ID: id, ThreadID: 100, SenderID: 100, Text: "orig " + id, Timestamp: time.UnixMilli(1)}); err != nil {
+			t.Fatalf("UpsertMessage: %v", err)
+		}
+	}
+	if err := ApplyTable(ctx, s, &table.LSTable{LSEditMessage: []*table.LSEditMessage{{MessageID: "a", Text: "edited a", EditCount: 1}}}); err != nil {
+		t.Fatalf("ApplyTable: %v", err)
+	}
+	chat := types.JID{User: "100", Server: types.MessengerServer}
+	edit := fbMessage(chat, "100", consumerContent(&waConsumerApplication.ConsumerApplication_Content{
+		Content: &waConsumerApplication.ConsumerApplication_Content_EditMessage{
+			EditMessage: &waConsumerApplication.ConsumerApplication_EditMessage{
+				Key:     &waCommon.MessageKey{ID: proto.String("b")},
+				Message: &waCommon.MessageText{Text: proto.String("edited b")},
+			},
+		},
+	}))
+	revoke := fbMessage(chat, "100", &waConsumerApplication.ConsumerApplication{
+		Payload: &waConsumerApplication.ConsumerApplication_Payload{
+			Payload: &waConsumerApplication.ConsumerApplication_Payload_ApplicationData{
+				ApplicationData: &waConsumerApplication.ConsumerApplication_ApplicationData{
+					ApplicationContent: &waConsumerApplication.ConsumerApplication_ApplicationData_Revoke{
+						Revoke: &waConsumerApplication.ConsumerApplication_RevokeMessage{Key: &waCommon.MessageKey{ID: proto.String("c")}},
+					},
+				},
+			},
+		},
+	})
+	for _, evt := range []*events.FBMessage{edit, revoke} {
+		change, ok := decodeLiveChange(evt)
+		if !ok {
+			t.Fatal("decodeLiveChange failed")
+		}
+		if _, err := ApplyEvent(ctx, s, Event{change: &change}); err != nil {
+			t.Fatalf("ApplyEvent: %v", err)
+		}
+	}
+	msgs, err := s.ListMessages(ctx, 100)
+	if err != nil {
+		t.Fatalf("ListMessages: %v", err)
+	}
+	want := map[string]string{"a": "edited a", "b": "edited b", "c": ""}
+	for _, m := range msgs {
+		if m.Text != want[m.ID] || (m.ID == "c") != m.Unsent || (m.ID != "c") != m.Edited {
+			t.Errorf("%s: text %q edited %v unsent %v", m.ID, m.Text, m.Edited, m.Unsent)
+		}
+	}
+}

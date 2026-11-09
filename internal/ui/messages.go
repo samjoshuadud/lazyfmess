@@ -110,6 +110,17 @@ func renderMessages(messages []store.Message, width int, selfID int64, cursorID 
 	return out
 }
 
+func messageFooter(msg store.Message) string {
+	var parts []string
+	if msg.Edited && !msg.Unsent {
+		parts = append(parts, "edited")
+	}
+	if summary := reactionSummary(msg.Reactions); summary != "" {
+		parts = append(parts, summary)
+	}
+	return strings.Join(parts, " · ")
+}
+
 func daySeparator(label string, width int) string {
 	label = " " + label + " "
 	side := max((width-lipgloss.Width(label))/2, 1)
@@ -118,6 +129,9 @@ func daySeparator(label string, width int) string {
 }
 
 func messageBody(msg store.Message) string {
+	if msg.Unsent {
+		return "message unsent"
+	}
 	body := strings.TrimSpace(msg.Text)
 	if msg.Pending {
 		body = strings.TrimSpace(body + " …")
@@ -194,9 +208,12 @@ func renderMessageBlock(msg store.Message, body, quote string, mine, showHeader 
 		bodyStyle = otherBodyStyle
 		align = lipgloss.Left
 	}
-	if msg.Error != "" {
+	switch {
+	case msg.Unsent:
+		bodyStyle = quoteStyle
+	case msg.Error != "":
 		bodyStyle = errorBodyStyle
-	} else if msg.Pending {
+	case msg.Pending:
 		bodyStyle = pendingBodyStyle
 	}
 
@@ -213,8 +230,8 @@ func renderMessageBlock(msg store.Message, body, quote string, mine, showHeader 
 	for _, line := range wrapWords(body, bubbleMax) {
 		parts = append(parts, bodyStyle.Render(line))
 	}
-	if summary := reactionSummary(msg.Reactions); summary != "" {
-		parts = append(parts, timeStyle.Render(ansi.Truncate(summary, bubbleMax, "…")))
+	if footer := messageFooter(msg); footer != "" {
+		parts = append(parts, timeStyle.Render(ansi.Truncate(footer, bubbleMax, "…")))
 	}
 	block := strings.Join(parts, "\n")
 	return lipgloss.NewStyle().

@@ -19,6 +19,7 @@ type Event struct {
 	Err      error
 	live     *liveMessage
 	reaction *store.Reaction
+	change   *messageChange
 	typing   []Typing
 }
 
@@ -38,6 +39,8 @@ func (c *Client) onE2EEEvent(ctx context.Context, evt any) {
 			c.handler(ctx, Event{Type: "e2ee_message", live: &live})
 		} else if reaction, ok := decodeLiveReaction(e); ok {
 			c.handler(ctx, Event{Type: "e2ee_reaction", reaction: &reaction})
+		} else if change, ok := decodeLiveChange(e); ok {
+			c.handler(ctx, Event{Type: "e2ee_change", change: &change})
 		}
 	case *events.ChatPresence:
 		if typing, ok := decodeChatPresence(e); ok {
@@ -91,6 +94,8 @@ func ApplyEvent(ctx context.Context, s *store.Store, evt Event) (bool, error) {
 		return true, applyLiveMessage(ctx, s, *evt.live)
 	case evt.reaction != nil:
 		return true, s.SetReaction(ctx, *evt.reaction)
+	case evt.change != nil:
+		return true, applyChange(ctx, s, *evt.change)
 	}
 	return false, nil
 }
