@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -60,23 +61,53 @@ type Reaction struct {
 	Emoji     string
 }
 
+type queryer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
 type Store struct {
 	db *sql.DB
+	q  queryer
 }
 
 func Open(ctx context.Context, dataDir string) (*Store, error) {
-	path := filepath.Join(dataDir, DBFileName)
-	db, err := sql.Open("sqlite", path)
+	params := url.Values{}
+	for _, pragma := range []string{"journal_mode(WAL)", "synchronous(NORMAL)", "busy_timeout(5000)"} {
+		params.Add("_pragma", pragma)
+	}
+	params.Set("_txlock", "immediate")
+	dsn := (&url.URL{Scheme: "file", Path: filepath.Join(dataDir, DBFileName), RawQuery: params.Encode()}).String()
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
-	db.SetMaxOpenConns(1)
-	s := &Store{db: db}
+	db.SetMaxOpenConns(4)
+	s := &Store{db: db, q: db}
 	if err := s.migrate(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
 	return s, nil
+}
+
+func (s *Store) InTx(ctx context.Context, fn func(*Store) error) error {
+	if _, ok := s.q.(*sql.Tx); ok {
+		return fn(s)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	if err := fn(&Store{db: s.db, q: tx}); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) Close() error {
@@ -133,7 +164,7 @@ CREATE TABLE IF NOT EXISTS participant_reads (
 );
 CREATE INDEX IF NOT EXISTS messages_thread_ts ON messages(thread_id, timestamp_ms);
 `
-	if _, err := s.db.ExecContext(ctx, schema); err != nil {
+	if _, err := s.q.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
 	for _, stmt := range []string{
@@ -141,7 +172,7 @@ CREATE INDEX IF NOT EXISTS messages_thread_ts ON messages(thread_id, timestamp_m
 		`ALTER TABLE threads ADD COLUMN last_read_ms INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE threads ADD COLUMN mute_until_ms INTEGER NOT NULL DEFAULT 0`,
 	} {
-		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+		if _, err := s.q.ExecContext(ctx, stmt); err != nil {
 			if !isDuplicateColumn(err) {
 				return fmt.Errorf("migrate thread columns: %w", err)
 			}
@@ -159,7 +190,7 @@ CREATE INDEX IF NOT EXISTS messages_thread_ts ON messages(thread_id, timestamp_m
 		`ALTER TABLE messages ADD COLUMN edited INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE messages ADD COLUMN unsent INTEGER NOT NULL DEFAULT 0`,
 	} {
-		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+		if _, err := s.q.ExecContext(ctx, stmt); err != nil {
 			if !isDuplicateColumn(err) {
 				return fmt.Errorf("migrate message columns: %w", err)
 			}
@@ -180,7 +211,7 @@ func (s *Store) UpsertContact(ctx context.Context, id int64, name string) error 
 	if id == 0 || name == "" {
 		return nil
 	}
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.q.ExecContext(ctx, `
 INSERT INTO contacts (id, name)
 VALUES (?, ?)
 ON CONFLICT(id) DO UPDATE SET
@@ -194,7 +225,7 @@ ON CONFLICT(id) DO UPDATE SET
 
 func (s *Store) ContactName(ctx context.Context, id int64) (string, error) {
 	var name string
-	err := s.db.QueryRowContext(ctx, `SELECT name FROM contacts WHERE id = ?`, id).Scan(&name)
+	err := s.q.QueryRowContext(ctx, `SELECT name FROM contacts WHERE id = ?`, id).Scan(&name)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
@@ -208,7 +239,7 @@ func (s *Store) PutHybridThread(ctx context.Context, fbKey, jid, threadType int6
 	if fbKey == 0 || jid == 0 {
 		return nil
 	}
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.q.ExecContext(ctx, `
 INSERT INTO hybrid_threads (fb_key, jid, thread_type)
 VALUES (?, ?, ?)
 ON CONFLICT(fb_key) DO UPDATE SET
@@ -223,7 +254,7 @@ ON CONFLICT(fb_key) DO UPDATE SET
 
 func (s *Store) HybridThreadJID(ctx context.Context, fbKey int64) (int64, error) {
 	var jid int64
-	err := s.db.QueryRowContext(ctx, `SELECT jid FROM hybrid_threads WHERE fb_key = ?`, fbKey).Scan(&jid)
+	err := s.q.QueryRowContext(ctx, `SELECT jid FROM hybrid_threads WHERE fb_key = ?`, fbKey).Scan(&jid)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -237,7 +268,7 @@ func (s *Store) OldestMessage(ctx context.Context, threadID int64) (Message, err
 	var m Message
 	var ms int64
 	var pending int
-	err := s.db.QueryRowContext(ctx, `
+	err := s.q.QueryRowContext(ctx, `
 SELECT id, thread_id, sender_id, text, timestamp_ms, pending, error,
 	media_kind, media_url, media_mime, media_name, media_duration_ms
 FROM messages
@@ -260,7 +291,7 @@ LIMIT 1
 }
 
 func (s *Store) UpsertThread(ctx context.Context, t Thread) error {
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.q.ExecContext(ctx, `
 INSERT INTO threads (id, title, last_preview, thread_type, updated_at_ms)
 VALUES (?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
@@ -276,7 +307,7 @@ ON CONFLICT(id) DO UPDATE SET
 }
 
 func (s *Store) UpsertMessage(ctx context.Context, m Message) error {
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.q.ExecContext(ctx, `
 INSERT INTO messages (
 	id, thread_id, sender_id, text, timestamp_ms, pending, error,
 	media_kind, media_url, media_mime, media_name, media_duration_ms,
@@ -310,7 +341,7 @@ ON CONFLICT(id) DO UPDATE SET
 }
 
 func (s *Store) ListThreads(ctx context.Context) ([]Thread, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.q.QueryContext(ctx, `
 SELECT t.id,
 	CASE WHEN t.title != '' THEN t.title ELSE COALESCE(c.name, '') END,
 	t.last_preview, t.thread_type, t.updated_at_ms, t.last_read_ms, t.mute_until_ms
@@ -339,7 +370,7 @@ ORDER BY t.updated_at_ms DESC, t.id DESC
 func (s *Store) GetThread(ctx context.Context, id int64) (Thread, error) {
 	var t Thread
 	var ms, readMS int64
-	err := s.db.QueryRowContext(ctx, `
+	err := s.q.QueryRowContext(ctx, `
 SELECT t.id,
 	CASE WHEN t.title != '' THEN t.title ELSE COALESCE(c.name, '') END,
 	t.last_preview, t.thread_type, t.updated_at_ms, t.last_read_ms, t.mute_until_ms
@@ -356,7 +387,7 @@ WHERE t.id = ?
 }
 
 func (s *Store) ListMessages(ctx context.Context, threadID int64) ([]Message, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.q.QueryContext(ctx, `
 SELECT m.id, m.thread_id, m.sender_id, COALESCE(c.name, ''), m.text, m.timestamp_ms, m.pending, m.error,
 	m.media_kind, m.media_url, m.media_mime, m.media_name, m.media_duration_ms,
 	m.reply_to_id,
@@ -397,7 +428,7 @@ ORDER BY m.timestamp_ms ASC, m.id ASC
 }
 
 func (s *Store) attachReactions(ctx context.Context, threadID int64, messages []Message) error {
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.q.QueryContext(ctx, `
 SELECT r.message_id, r.actor_id, r.emoji
 FROM reactions r
 JOIN messages m ON m.id = r.message_id
@@ -425,7 +456,7 @@ ORDER BY r.rowid
 }
 
 func (s *Store) EditMessage(ctx context.Context, id, text string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE messages SET text = ?, edited = 1 WHERE id = ? AND unsent = 0`, text, id)
+	_, err := s.q.ExecContext(ctx, `UPDATE messages SET text = ?, edited = 1 WHERE id = ? AND unsent = 0`, text, id)
 	if err != nil {
 		return fmt.Errorf("edit message: %w", err)
 	}
@@ -433,7 +464,7 @@ func (s *Store) EditMessage(ctx context.Context, id, text string) error {
 }
 
 func (s *Store) UnsendMessage(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.q.ExecContext(ctx, `
 UPDATE messages SET unsent = 1, text = '', media_kind = '', media_url = '', media_mime = '', media_name = '', media_duration_ms = 0
 WHERE id = ?
 `, id)
@@ -447,7 +478,7 @@ func (s *Store) SetParticipantRead(ctx context.Context, threadID, contactID int6
 	if threadID == 0 || contactID == 0 || at.UnixMilli() <= 0 {
 		return nil
 	}
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.q.ExecContext(ctx, `
 INSERT INTO participant_reads (thread_id, contact_id, read_ms) VALUES (?, ?, ?)
 ON CONFLICT(thread_id, contact_id) DO UPDATE SET read_ms = MAX(read_ms, excluded.read_ms)
 `, threadID, contactID, at.UnixMilli())
@@ -458,7 +489,7 @@ ON CONFLICT(thread_id, contact_id) DO UPDATE SET read_ms = MAX(read_ms, excluded
 }
 
 func (s *Store) ReadMarks(ctx context.Context, threadID, selfID int64) ([]time.Time, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT read_ms FROM participant_reads WHERE thread_id = ? AND contact_id != ?`, threadID, selfID)
+	rows, err := s.q.QueryContext(ctx, `SELECT read_ms FROM participant_reads WHERE thread_id = ? AND contact_id != ?`, threadID, selfID)
 	if err != nil {
 		return nil, fmt.Errorf("read marks: %w", err)
 	}
@@ -487,9 +518,9 @@ func (s *Store) SetReaction(ctx context.Context, r Reaction) error {
 	}
 	var err error
 	if r.Emoji == "" {
-		_, err = s.db.ExecContext(ctx, `DELETE FROM reactions WHERE message_id = ? AND actor_id = ?`, r.MessageID, r.ActorID)
+		_, err = s.q.ExecContext(ctx, `DELETE FROM reactions WHERE message_id = ? AND actor_id = ?`, r.MessageID, r.ActorID)
 	} else {
-		_, err = s.db.ExecContext(ctx, `
+		_, err = s.q.ExecContext(ctx, `
 INSERT INTO reactions (message_id, actor_id, emoji) VALUES (?, ?, ?)
 ON CONFLICT(message_id, actor_id) DO UPDATE SET emoji=excluded.emoji
 `, r.MessageID, r.ActorID, r.Emoji)
@@ -502,14 +533,14 @@ ON CONFLICT(message_id, actor_id) DO UPDATE SET emoji=excluded.emoji
 
 func (s *Store) ThreadCount(ctx context.Context) (int, error) {
 	var n int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM threads`).Scan(&n); err != nil {
+	if err := s.q.QueryRowContext(ctx, `SELECT COUNT(*) FROM threads`).Scan(&n); err != nil {
 		return 0, fmt.Errorf("count threads: %w", err)
 	}
 	return n, nil
 }
 
 func (s *Store) SetMute(ctx context.Context, threadID, untilMs int64) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE threads SET mute_until_ms = ? WHERE id = ?`, untilMs, threadID)
+	_, err := s.q.ExecContext(ctx, `UPDATE threads SET mute_until_ms = ? WHERE id = ?`, untilMs, threadID)
 	if err != nil {
 		return fmt.Errorf("set mute: %w", err)
 	}
@@ -520,7 +551,7 @@ func (s *Store) SetLastRead(ctx context.Context, threadID int64, at time.Time) e
 	if at.IsZero() || at.UnixMilli() <= 0 {
 		return nil
 	}
-	_, err := s.db.ExecContext(ctx, `UPDATE threads SET last_read_ms = MAX(last_read_ms, ?) WHERE id = ?`, at.UnixMilli(), threadID)
+	_, err := s.q.ExecContext(ctx, `UPDATE threads SET last_read_ms = MAX(last_read_ms, ?) WHERE id = ?`, at.UnixMilli(), threadID)
 	if err != nil {
 		return fmt.Errorf("set last read: %w", err)
 	}
@@ -528,7 +559,7 @@ func (s *Store) SetLastRead(ctx context.Context, threadID int64, at time.Time) e
 }
 
 func (s *Store) UnreadMessageIDs(ctx context.Context, threadID, selfID int64) (map[int64][]string, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.q.QueryContext(ctx, `
 SELECT m.sender_id, m.id
 FROM messages m
 JOIN threads t ON t.id = m.thread_id
@@ -552,7 +583,7 @@ ORDER BY m.timestamp_ms ASC
 }
 
 func (s *Store) DeleteMessage(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM messages WHERE id = ?`, id)
+	_, err := s.q.ExecContext(ctx, `DELETE FROM messages WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("delete message: %w", err)
 	}

@@ -314,3 +314,38 @@ func TestEditAndUnsend(t *testing.T) {
 		}
 	}
 }
+
+func TestInTxCommitsOrRollsBack(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, err := Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	var mode string
+	if err := s.db.QueryRowContext(ctx, `PRAGMA journal_mode`).Scan(&mode); err != nil || mode != "wal" {
+		t.Fatalf("journal mode %q err %v", mode, err)
+	}
+	failed := fmt.Errorf("stop")
+	err = s.InTx(ctx, func(tx *Store) error {
+		if err := tx.EnsureThread(ctx, 1); err != nil {
+			return err
+		}
+		return failed
+	})
+	if err != failed {
+		t.Fatalf("InTx error: %v", err)
+	}
+	if n, _ := s.ThreadCount(ctx); n != 0 {
+		t.Fatalf("rolled back thread persisted: %d", n)
+	}
+	if err := s.InTx(ctx, func(tx *Store) error {
+		return tx.InTx(ctx, func(inner *Store) error { return inner.EnsureThread(ctx, 2) })
+	}); err != nil {
+		t.Fatalf("nested InTx: %v", err)
+	}
+	if n, _ := s.ThreadCount(ctx); n != 1 {
+		t.Fatalf("committed threads: %d", n)
+	}
+}

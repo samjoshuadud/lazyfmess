@@ -13,6 +13,12 @@ func ApplyTable(ctx context.Context, s *store.Store, tbl *table.LSTable) error {
 	if s == nil || tbl == nil {
 		return nil
 	}
+	return s.InTx(ctx, func(s *store.Store) error {
+		return applyTable(ctx, s, tbl)
+	})
+}
+
+func applyTable(ctx context.Context, s *store.Store, tbl *table.LSTable) error {
 	if err := applyContacts(ctx, s, tbl); err != nil {
 		return err
 	}

@@ -217,38 +217,10 @@ func (c *Client) syncEncryptedThread(ctx context.Context, s *store.Store, thread
 		if err != nil {
 			return fmt.Errorf("decrypt encrypted history %d: %w", thread.ID, err)
 		}
-		var newestPreview string
-		var newestTS time.Time
-		for _, msg := range messages {
-			plain, ok := archivePlainMessage(msg)
-			if !ok {
-				continue
-			}
-			if err := s.EnsureThread(ctx, thread.ID); err != nil {
-				return err
-			}
-			if err := s.UpsertMessage(ctx, store.Message{
-				ID:        plain.ID,
-				ThreadID:  thread.ID,
-				SenderID:  plain.SenderID,
-				Text:      plain.Text,
-				Timestamp: time.UnixMilli(plain.TimestampMS),
-			}); err != nil {
-				return err
-			}
-			if plain.TimestampMS >= newestTS.UnixMilli() {
-				newestTS = time.UnixMilli(plain.TimestampMS)
-				newestPreview = plain.Text
-			}
-		}
-		if newestPreview != "" {
-			_ = s.UpsertThread(ctx, store.Thread{
-				ID:          thread.ID,
-				Title:       thread.Title,
-				LastPreview: newestPreview,
-				ThreadType:  thread.ThreadType,
-				UpdatedAt:   newestTS,
-			})
+		if err := s.InTx(ctx, func(s *store.Store) error {
+			return storeArchivePage(ctx, s, thread, messages)
+		}); err != nil {
+			return err
 		}
 		if rangeResp.Range == nil || rangeResp.Range.HasMoreBefore == nil || !*rangeResp.Range.HasMoreBefore {
 			return nil
@@ -312,6 +284,43 @@ func (c *Client) syncSocketThread(ctx context.Context, s *store.Store, thread st
 		}
 	}
 	return nil
+}
+
+func storeArchivePage(ctx context.Context, s *store.Store, thread store.Thread, messages []*securehistory.DecryptedMessage) error {
+	var newestPreview string
+	var newestTS time.Time
+	for _, msg := range messages {
+		plain, ok := archivePlainMessage(msg)
+		if !ok {
+			continue
+		}
+		if err := s.EnsureThread(ctx, thread.ID); err != nil {
+			return err
+		}
+		if err := s.UpsertMessage(ctx, store.Message{
+			ID:        plain.ID,
+			ThreadID:  thread.ID,
+			SenderID:  plain.SenderID,
+			Text:      plain.Text,
+			Timestamp: time.UnixMilli(plain.TimestampMS),
+		}); err != nil {
+			return err
+		}
+		if plain.TimestampMS >= newestTS.UnixMilli() {
+			newestTS = time.UnixMilli(plain.TimestampMS)
+			newestPreview = plain.Text
+		}
+	}
+	if newestPreview == "" {
+		return nil
+	}
+	return s.UpsertThread(ctx, store.Thread{
+		ID:          thread.ID,
+		Title:       thread.Title,
+		LastPreview: newestPreview,
+		ThreadType:  thread.ThreadType,
+		UpdatedAt:   newestTS,
+	})
 }
 
 type plainArchiveMessage struct {
