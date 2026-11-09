@@ -18,9 +18,10 @@ type threadsLoadedMsg struct {
 }
 
 type messagesLoadedMsg struct {
-	threadID int64
-	messages []store.Message
-	err      error
+	threadID  int64
+	messages  []store.Message
+	readMarks []time.Time
+	err       error
 }
 
 type sendFinishedMsg struct {
@@ -54,7 +55,7 @@ type chatRender struct {
 	order   []string
 }
 
-func renderMessages(messages []store.Message, width int, selfID int64, cursorID string) chatRender {
+func renderMessages(messages []store.Message, width int, selfID int64, cursorID string, readMarks []time.Time) chatRender {
 	if width <= 0 {
 		width = 40
 	}
@@ -66,6 +67,7 @@ func renderMessages(messages []store.Message, width int, selfID int64, cursorID 
 	var prevSender int64
 	var prevTime time.Time
 	now := time.Now()
+	seenID, seen := seenStatus(messages, selfID, readMarks)
 
 	for _, msg := range messages {
 		body := messageBody(msg)
@@ -84,7 +86,11 @@ func renderMessages(messages []store.Message, width int, selfID int64, cursorID 
 		if newDay {
 			rows = append(rows, daySeparator(dayLabel(msg.Timestamp, now), width), "")
 		}
-		block := strings.Split(renderMessageBlock(msg, body, replyQuote(msg, selfID), mine, showHeader, bubbleMax, width), "\n")
+		status := ""
+		if msg.ID == seenID {
+			status = seen
+		}
+		block := strings.Split(renderMessageBlock(msg, body, replyQuote(msg, selfID), status, mine, showHeader, bubbleMax, width), "\n")
 		gutter := " "
 		if msg.ID == cursorID {
 			gutter = focusMark.Render("▌")
@@ -110,13 +116,40 @@ func renderMessages(messages []store.Message, width int, selfID int64, cursorID 
 	return out
 }
 
-func messageFooter(msg store.Message) string {
+func seenStatus(messages []store.Message, selfID int64, readMarks []time.Time) (string, string) {
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg := messages[i]
+		if msg.SenderID != selfID || msg.Pending || msg.Error != "" || msg.Unsent {
+			continue
+		}
+		readers := 0
+		for _, mark := range readMarks {
+			if !mark.Before(msg.Timestamp) {
+				readers++
+			}
+		}
+		switch readers {
+		case 0:
+			return "", ""
+		case 1:
+			return msg.ID, "Seen"
+		default:
+			return msg.ID, fmt.Sprintf("Seen by %d", readers)
+		}
+	}
+	return "", ""
+}
+
+func messageFooter(msg store.Message, status string) string {
 	var parts []string
 	if msg.Edited && !msg.Unsent {
 		parts = append(parts, "edited")
 	}
 	if summary := reactionSummary(msg.Reactions); summary != "" {
 		parts = append(parts, summary)
+	}
+	if status != "" {
+		parts = append(parts, status)
 	}
 	return strings.Join(parts, " · ")
 }
@@ -194,7 +227,7 @@ func replyName(msg store.Message, selfID int64) string {
 	}
 }
 
-func renderMessageBlock(msg store.Message, body, quote string, mine, showHeader bool, bubbleMax, paneWidth int) string {
+func renderMessageBlock(msg store.Message, body, quote, status string, mine, showHeader bool, bubbleMax, paneWidth int) string {
 	name := "you"
 	nameStyle := selfNameStyle
 	bodyStyle := selfBodyStyle
@@ -230,7 +263,7 @@ func renderMessageBlock(msg store.Message, body, quote string, mine, showHeader 
 	for _, line := range wrapWords(body, bubbleMax) {
 		parts = append(parts, bodyStyle.Render(line))
 	}
-	if footer := messageFooter(msg); footer != "" {
+	if footer := messageFooter(msg, status); footer != "" {
 		parts = append(parts, timeStyle.Render(ansi.Truncate(footer, bubbleMax, "…")))
 	}
 	block := strings.Join(parts, "\n")

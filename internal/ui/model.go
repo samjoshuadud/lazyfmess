@@ -128,6 +128,7 @@ type Model struct {
 	leftWidth      int
 	rightWidth     int
 	messages       []store.Message
+	readMarks      []time.Time
 }
 
 type readMark struct {
@@ -320,6 +321,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cursorAtEnd := len(m.order) == 0 || m.cursorID == m.order[len(m.order)-1]
 		m.loadedID = msg.threadID
 		m.messages = msg.messages
+		m.readMarks = msg.readMarks
 		m.refreshViewport()
 		m.placeCursor(newThread || cursorAtEnd)
 		m.refreshViewport()
@@ -643,7 +645,11 @@ func (m Model) loadThreads() tea.Msg {
 func (m Model) loadMessages(threadID int64) tea.Cmd {
 	return func() tea.Msg {
 		msgs, err := m.store.ListMessages(m.ctx, threadID)
-		return messagesLoadedMsg{threadID: threadID, messages: msgs, err: err}
+		if err != nil {
+			return messagesLoadedMsg{threadID: threadID, err: err}
+		}
+		marks, err := m.store.ReadMarks(m.ctx, threadID, m.selfAccountID())
+		return messagesLoadedMsg{threadID: threadID, messages: msgs, readMarks: marks, err: err}
 	}
 }
 

@@ -53,7 +53,31 @@ func ApplyTable(ctx context.Context, s *store.Store, tbl *table.LSTable) error {
 	if err := applyEdits(ctx, s, tbl); err != nil {
 		return err
 	}
+	if err := applyReceipts(ctx, s, tbl); err != nil {
+		return err
+	}
 	return applyReadMarks(ctx, s, tbl)
+}
+
+func applyReceipts(ctx context.Context, s *store.Store, tbl *table.LSTable) error {
+	type receipt struct{ threadKey, contactID, readMS int64 }
+	var receipts []receipt
+	for _, p := range tbl.LSAddParticipantIdToGroupThread {
+		receipts = append(receipts, receipt{p.ThreadKey, p.ContactId, p.ReadWatermarkTimestampMs})
+	}
+	for _, r := range tbl.LSUpdateReadReceipt {
+		receipts = append(receipts, receipt{r.ThreadKey, r.ContactId, r.ReadWatermarkTimestampMs})
+	}
+	for _, r := range receipts {
+		key, err := resolveThreadKey(ctx, s, r.threadKey)
+		if err != nil {
+			return err
+		}
+		if err := s.SetParticipantRead(ctx, key, r.contactID, time.UnixMilli(r.readMS)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func applyContacts(ctx context.Context, s *store.Store, tbl *table.LSTable) error {

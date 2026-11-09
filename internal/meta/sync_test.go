@@ -3,8 +3,11 @@ package meta
 import (
 	"context"
 	"testing"
+	"time"
 
 	"go.mau.fi/mautrix-meta/pkg/messagix/table"
+	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
 
 	"lazyfmess/internal/store"
 )
@@ -244,5 +247,46 @@ func TestApplyTableKeepsReplyFields(t *testing.T) {
 	}
 	if m := msgs[0]; m.ReplyToID != "mid-1" || m.ReplyText != "lunch?" || m.ReplySenderID != 9 {
 		t.Fatalf("reply fields: %+v", m)
+	}
+}
+
+func TestReadReceiptsFromTableAndLiveEvent(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	if err := ApplyTable(ctx, s, &table.LSTable{
+		LSAddParticipantIdToGroupThread: []*table.LSAddParticipantIdToGroupThread{{ThreadKey: 9, ContactId: 7, ReadWatermarkTimestampMs: 1000}},
+		LSUpdateReadReceipt:             []*table.LSUpdateReadReceipt{{ThreadKey: 9, ContactId: 7, ReadWatermarkTimestampMs: 5000}},
+	}); err != nil {
+		t.Fatalf("ApplyTable: %v", err)
+	}
+	receipt, ok := decodeReceipt(&events.Receipt{
+		MessageSource: types.MessageSource{
+			Chat:   types.JID{User: "9", Server: types.GroupServer},
+			Sender: types.JID{User: "8", Server: types.MessengerServer},
+		},
+		Timestamp: time.UnixMilli(7000),
+		Type:      types.ReceiptTypeRead,
+	})
+	if !ok {
+		t.Fatal("decodeReceipt failed")
+	}
+	if _, err := ApplyEvent(ctx, s, Event{receipt: &receipt}); err != nil {
+		t.Fatalf("ApplyEvent: %v", err)
+	}
+	marks, err := s.ReadMarks(ctx, 9, 1)
+	if err != nil {
+		t.Fatalf("ReadMarks: %v", err)
+	}
+	got := map[int64]bool{}
+	for _, m := range marks {
+		got[m.UnixMilli()] = true
+	}
+	if len(marks) != 2 || !got[5000] || !got[7000] {
+		t.Fatalf("marks: %v", marks)
 	}
 }

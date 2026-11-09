@@ -22,7 +22,7 @@ func (m *Model) refreshViewport() {
 	if m.focus == focusMessages {
 		cursor = m.cursorID
 	}
-	chat := renderMessages(m.messages, m.viewport.Width, m.selfAccountID(), cursor)
+	chat := renderMessages(m.messages, m.viewport.Width, m.selfAccountID(), cursor, m.readMarks)
 	m.viewport.SetContent(chat.content)
 	m.spans = chat.spans
 	m.order = chat.order

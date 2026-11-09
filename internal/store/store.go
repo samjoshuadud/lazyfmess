@@ -120,6 +120,12 @@ CREATE TABLE IF NOT EXISTS reactions (
 	emoji TEXT NOT NULL,
 	PRIMARY KEY (message_id, actor_id)
 );
+CREATE TABLE IF NOT EXISTS participant_reads (
+	thread_id INTEGER NOT NULL,
+	contact_id INTEGER NOT NULL,
+	read_ms INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (thread_id, contact_id)
+);
 CREATE INDEX IF NOT EXISTS messages_thread_ts ON messages(thread_id, timestamp_ms);
 `
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
@@ -429,6 +435,37 @@ WHERE id = ?
 		return fmt.Errorf("unsend message: %w", err)
 	}
 	return nil
+}
+
+func (s *Store) SetParticipantRead(ctx context.Context, threadID, contactID int64, at time.Time) error {
+	if threadID == 0 || contactID == 0 || at.UnixMilli() <= 0 {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO participant_reads (thread_id, contact_id, read_ms) VALUES (?, ?, ?)
+ON CONFLICT(thread_id, contact_id) DO UPDATE SET read_ms = MAX(read_ms, excluded.read_ms)
+`, threadID, contactID, at.UnixMilli())
+	if err != nil {
+		return fmt.Errorf("set participant read: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ReadMarks(ctx context.Context, threadID, selfID int64) ([]time.Time, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT read_ms FROM participant_reads WHERE thread_id = ? AND contact_id != ?`, threadID, selfID)
+	if err != nil {
+		return nil, fmt.Errorf("read marks: %w", err)
+	}
+	defer rows.Close()
+	var out []time.Time
+	for rows.Next() {
+		var ms int64
+		if err := rows.Scan(&ms); err != nil {
+			return nil, fmt.Errorf("scan read mark: %w", err)
+		}
+		out = append(out, time.UnixMilli(ms))
+	}
+	return out, rows.Err()
 }
 
 func boolInt(b bool) int {

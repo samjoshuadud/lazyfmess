@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	"go.mau.fi/mautrix-meta/pkg/messagix/table"
 	"go.mau.fi/whatsmeow/proto/waConsumerApplication"
@@ -20,7 +21,15 @@ type Event struct {
 	live     *liveMessage
 	reaction *store.Reaction
 	change   *messageChange
+	receipt  *liveReceipt
 	typing   []Typing
+}
+
+type liveReceipt struct {
+	threadID int64
+	readerID int64
+	at       time.Time
+	self     bool
 }
 
 type liveMessage struct {
@@ -45,6 +54,10 @@ func (c *Client) onE2EEEvent(ctx context.Context, evt any) {
 	case *events.ChatPresence:
 		if typing, ok := decodeChatPresence(e); ok {
 			c.handler(ctx, Event{Type: "e2ee_typing", typing: []Typing{typing}})
+		}
+	case *events.Receipt:
+		if receipt, ok := decodeReceipt(e); ok {
+			c.handler(ctx, Event{Type: "e2ee_receipt", receipt: &receipt})
 		}
 	case *events.Disconnected:
 		c.handler(ctx, Event{Type: "e2ee_disconnected", Err: fmt.Errorf("encrypted chats disconnected")})
@@ -86,6 +99,21 @@ func decodeLiveMessage(evt *events.FBMessage) (liveMessage, bool) {
 	}, true
 }
 
+func decodeReceipt(evt *events.Receipt) (liveReceipt, bool) {
+	if evt.Type != types.ReceiptTypeRead && evt.Type != types.ReceiptTypeReadSelf {
+		return liveReceipt{}, false
+	}
+	threadID, err := strconv.ParseInt(evt.Chat.User, 10, 64)
+	if err != nil {
+		return liveReceipt{}, false
+	}
+	readerID, err := strconv.ParseInt(evt.Sender.User, 10, 64)
+	if err != nil {
+		return liveReceipt{}, false
+	}
+	return liveReceipt{threadID: threadID, readerID: readerID, at: evt.Timestamp, self: evt.Type == types.ReceiptTypeReadSelf}, true
+}
+
 func ApplyEvent(ctx context.Context, s *store.Store, evt Event) (bool, error) {
 	switch {
 	case evt.Table != nil:
@@ -96,6 +124,10 @@ func ApplyEvent(ctx context.Context, s *store.Store, evt Event) (bool, error) {
 		return true, s.SetReaction(ctx, *evt.reaction)
 	case evt.change != nil:
 		return true, applyChange(ctx, s, *evt.change)
+	case evt.receipt != nil && evt.receipt.self:
+		return true, s.SetLastRead(ctx, evt.receipt.threadID, evt.receipt.at)
+	case evt.receipt != nil:
+		return true, s.SetParticipantRead(ctx, evt.receipt.threadID, evt.receipt.readerID, evt.receipt.at)
 	}
 	return false, nil
 }
