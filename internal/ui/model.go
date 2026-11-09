@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -74,6 +75,7 @@ type Model struct {
 	onReady       func()
 	prefillPIN    string
 	ctx           context.Context
+	keys          keyMap
 	list          list.Model
 	viewport      viewport.Model
 	composer      textarea.Model
@@ -124,6 +126,7 @@ func New(ctx context.Context, s *store.Store, sender Sender, history HistoryLoad
 		onReady:    cfg.OnReady,
 		prefillPIN: strings.TrimSpace(cfg.PrefillPIN),
 		ctx:        ctx,
+		keys:       newKeyMap(),
 		list:       newThreadList(),
 		viewport:   viewport.New(1, 1),
 		composer:   composer,
@@ -301,101 +304,84 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateHelp(msg tea.Msg) (Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "?", "esc", "q", "enter", " ":
-			m.showHelp = false
-			return m, nil
-		case "ctrl+c":
+	if k, ok := msg.(tea.KeyMsg); ok {
+		switch {
+		case key.Matches(k, m.keys.ForceQuit):
 			return m, tea.Quit
+		case key.Matches(k, m.keys.Close):
+			m.showHelp = false
 		}
 	}
 	return m, nil
 }
 
 func (m Model) updateMain(msg tea.Msg) (Model, tea.Cmd) {
-	if key, ok := msg.(tea.KeyMsg); ok {
-		if m.list.FilterState() == list.Filtering {
-			return m.updateList(msg)
-		}
-		switch key.String() {
-		case "ctrl+c":
-			return m, tea.Quit
-		case "q":
-			if m.focus != focusComposer {
-				return m, tea.Quit
-			}
-		case "?":
-			m.showHelp = true
-			return m, nil
-		case "tab":
-			m.cycleFocus(1)
-			return m, nil
-		case "shift+tab":
-			m.cycleFocus(-1)
-			return m, nil
-		case "esc":
-			if m.focus == focusList {
-				return m.updateList(msg)
-			}
-			m.setFocus(focusList)
-			return m, nil
-		case "i", "a", "c":
-			if m.focus != focusComposer && m.selectedID != 0 {
-				m.setFocus(focusComposer)
-				return m, nil
-			}
-		case "enter":
-			if m.focus == focusList {
-				if item, ok := m.list.SelectedItem().(threadItem); ok {
-					m.selectedID = item.thread.ID
-					m.setFocus(focusMessages)
-					return m, tea.Batch(m.loadMessages(item.thread.ID), m.fetchHistory(item.thread))
-				}
-			}
-			if m.focus == focusComposer && m.selectedID != 0 {
-				return m, m.queueSend()
-			}
-		case "l", "right":
-			if m.focus == focusList {
-				m.setFocus(focusMessages)
-				return m, nil
-			}
-			if m.focus == focusMessages && m.selectedID != 0 {
-				m.setFocus(focusComposer)
-				return m, nil
-			}
-		case "h", "left":
-			if m.focus == focusComposer {
-				m.setFocus(focusMessages)
-				return m, nil
-			}
-			if m.focus == focusMessages {
-				m.setFocus(focusList)
-				return m, nil
-			}
-		case "s":
-			if m.focus != focusComposer {
-				m.openSearchModal()
-				return m, textinput.Blink
-			}
-		case "/":
-			if m.focus != focusComposer {
-				m.setFocus(focusList)
-				return m.updateList(msg)
-			}
-		}
+	k, isKey := msg.(tea.KeyMsg)
+	if !isKey || m.list.FilterState() == list.Filtering {
+		return m.updateFocused(msg)
 	}
+	keys := m.keys
+	switch {
+	case key.Matches(k, keys.ForceQuit):
+		return m, tea.Quit
+	case key.Matches(k, keys.NextPane):
+		m.cycleFocus(1)
+		return m, nil
+	case key.Matches(k, keys.PrevPane):
+		m.cycleFocus(-1)
+		return m, nil
+	case key.Matches(k, keys.Back) && m.focus != focusList:
+		m.setFocus(focusList)
+		return m, nil
+	case m.focus == focusComposer:
+		if key.Matches(k, keys.Send) {
+			return m, m.queueSend()
+		}
+		return m.updateFocused(msg)
+	case key.Matches(k, keys.Quit):
+		return m, tea.Quit
+	case key.Matches(k, keys.Help):
+		m.showHelp = true
+		return m, nil
+	case key.Matches(k, keys.Compose) && m.selectedID != 0:
+		m.setFocus(focusComposer)
+		return m, nil
+	case key.Matches(k, keys.People):
+		m.openSearchModal()
+		return m, textinput.Blink
+	case key.Matches(k, keys.Filter):
+		m.setFocus(focusList)
+		return m.updateFocused(msg)
+	case key.Matches(k, keys.PaneRight):
+		if m.focus == focusList {
+			m.setFocus(focusMessages)
+		} else if m.selectedID != 0 {
+			m.setFocus(focusComposer)
+		}
+		return m, nil
+	case key.Matches(k, keys.PaneLeft):
+		m.setFocus(focusList)
+		return m, nil
+	case m.focus == focusList && key.Matches(k, keys.OpenChat):
+		item, ok := m.list.SelectedItem().(threadItem)
+		if !ok {
+			return m, nil
+		}
+		m.selectedID = item.thread.ID
+		m.setFocus(focusMessages)
+		return m, tea.Batch(m.loadMessages(item.thread.ID), m.fetchHistory(item.thread))
+	}
+	return m.updateFocused(msg)
+}
+
+func (m Model) updateFocused(msg tea.Msg) (Model, tea.Cmd) {
 	switch m.focus {
 	case focusList:
 		return m.updateList(msg)
 	case focusMessages:
 		return m.updateMessages(msg)
-	case focusComposer:
-		return m.updateComposer(msg)
 	default:
-		return m, nil
+		return m.updateComposer(msg)
 	}
 }
 
@@ -412,43 +398,42 @@ func (m Model) updateList(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (m Model) updateMessages(msg tea.Msg) (Model, tea.Cmd) {
-	var cmd tea.Cmd
-	if key, ok := msg.(tea.KeyMsg); ok {
-		switch key.String() {
-		case "j", "down":
-			m.viewport.LineDown(1)
-			return m, nil
-		case "k", "up":
-			m.viewport.LineUp(1)
-			return m, nil
-		case "g", "home":
-			m.viewport.GotoTop()
-			return m, nil
-		case "G", "end":
-			m.viewport.GotoBottom()
-			return m, nil
-		case "ctrl+d":
-			m.viewport.HalfViewDown()
-			return m, nil
-		case "ctrl+u":
-			m.viewport.HalfViewUp()
-			return m, nil
-		case "n", "]", "}":
-			m.cycleMediaFocus(1)
-			m.refreshViewport()
-			m.scrollToMediaFocus()
-			return m, nil
-		case "p", "[", "{":
-			m.cycleMediaFocus(-1)
-			m.refreshViewport()
-			m.scrollToMediaFocus()
-			return m, nil
-		case "o", "enter":
-			return m, m.openFocusedMedia()
-		}
+	k, ok := msg.(tea.KeyMsg)
+	if !ok {
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
 	}
-	m.viewport, cmd = m.viewport.Update(msg)
-	return m, cmd
+	keys := m.keys
+	switch {
+	case key.Matches(k, keys.Down):
+		m.viewport.LineDown(1)
+	case key.Matches(k, keys.Up):
+		m.viewport.LineUp(1)
+	case key.Matches(k, keys.Top):
+		m.viewport.GotoTop()
+	case key.Matches(k, keys.Bottom):
+		m.viewport.GotoBottom()
+	case key.Matches(k, keys.HalfDown):
+		m.viewport.HalfViewDown()
+	case key.Matches(k, keys.HalfUp):
+		m.viewport.HalfViewUp()
+	case key.Matches(k, keys.NextMedia):
+		m.cycleMediaFocus(1)
+		m.refreshViewport()
+		m.scrollToMediaFocus()
+	case key.Matches(k, keys.PrevMedia):
+		m.cycleMediaFocus(-1)
+		m.refreshViewport()
+		m.scrollToMediaFocus()
+	case key.Matches(k, keys.OpenMedia):
+		return m, m.openFocusedMedia()
+	default:
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
+	}
+	return m, nil
 }
 
 func (m Model) updateComposer(msg tea.Msg) (Model, tea.Cmd) {

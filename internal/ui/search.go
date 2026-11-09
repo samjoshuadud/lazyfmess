@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -100,23 +101,23 @@ func (m Model) updateSearch(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c":
+		switch {
+		case key.Matches(msg, m.keys.ForceQuit):
 			return m, tea.Quit
-		case "esc":
+		case key.Matches(msg, m.keys.Skip):
 			m.closeSearchModal()
 			return m, nil
-		case "up":
-			if len(m.searchResults) > 0 && m.searchIndex > 0 {
+		case key.Matches(msg, m.keys.SearchUp):
+			if m.searchIndex > 0 {
 				m.searchIndex--
 			}
 			return m, nil
-		case "down":
-			if len(m.searchResults) > 0 && m.searchIndex < len(m.searchResults)-1 {
+		case key.Matches(msg, m.keys.SearchDown):
+			if m.searchIndex < len(m.searchResults)-1 {
 				m.searchIndex++
 			}
 			return m, nil
-		case "enter":
+		case key.Matches(msg, m.keys.SearchSubmit):
 			query := strings.TrimSpace(m.searchInput.Value())
 			if query == "" {
 				m.searchErr = "type a name to search"
@@ -206,7 +207,7 @@ func (m Model) renderSearchModal() string {
 		}
 	}
 
-	help := helpStyle.Render("enter search/open · ↑/↓ move · esc close")
+	help := renderHints(m.contextBindings(), width-4)
 	return modalStyle.Width(width).Render(
 		lipgloss.JoinVertical(
 			lipgloss.Left,

@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -29,15 +30,15 @@ func (m *Model) closePINModal() {
 func (m Model) updatePIN(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c":
+		switch {
+		case key.Matches(msg, m.keys.ForceQuit):
 			return m, tea.Quit
-		case "esc":
+		case key.Matches(msg, m.keys.Skip):
 			m.closePINModal()
 			m.status = "history unlock skipped"
 			m.kickHistorySync()
 			return m, nil
-		case "enter":
+		case key.Matches(msg, m.keys.Unlock):
 			value := strings.TrimSpace(m.pinInput.Value())
 			if value == "" {
 				m.closePINModal()
@@ -90,7 +91,7 @@ func (m Model) renderPINModal() string {
 	if m.pinErr != "" {
 		errLine = errorStatusStyle.Render(m.pinErr)
 	}
-	help := helpStyle.Render("enter unlock · esc skip")
+	help := renderHints(m.contextBindings(), width-4)
 
 	card := modalStyle.Width(width).Render(
 		lipgloss.JoinVertical(

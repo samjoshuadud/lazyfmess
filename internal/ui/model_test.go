@@ -285,10 +285,11 @@ func TestHeaderUsesOpenThreadWhenFiltered(t *testing.T) {
 
 func TestViewFitsTerminal(t *testing.T) {
 	t.Parallel()
+	m := newTestModel(t, 5, 15)
 	sizes := []struct{ w, h int }{{80, 24}, {100, 30}, {200, 50}, {60, 15}}
 	for _, size := range sizes {
-		m := newTestModel(t, 5, 15)
-		m = drain(t, m, tea.WindowSizeMsg{Width: size.w, Height: size.h})
+		model, _ := m.Update(tea.WindowSizeMsg{Width: size.w, Height: size.h})
+		m = model.(Model)
 		lines := strings.Split(m.View(), "\n")
 		if len(lines) > size.h {
 			t.Errorf("%dx%d: %d lines", size.w, size.h, len(lines))
@@ -298,6 +299,40 @@ func TestViewFitsTerminal(t *testing.T) {
 				t.Errorf("%dx%d: line %d is %d wide", size.w, size.h, i, w)
 				break
 			}
+		}
+	}
+}
+
+func TestComposerReceivesNavigationLetters(t *testing.T) {
+	t.Parallel()
+	m := newTestModel(t, 1, 0)
+	for _, r := range "ihlqs?" {
+		model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = model.(Model)
+	}
+	if got := m.composer.Value(); got != "hlqs?" {
+		t.Fatalf("composer value: %q", got)
+	}
+	if m.focus != focusComposer || m.showHelp || m.showSearch {
+		t.Fatal("letters in the composer must not trigger global keys")
+	}
+}
+
+func TestHintsFollowFocus(t *testing.T) {
+	t.Parallel()
+	m := newTestModel(t, 1, 0)
+	tests := []struct {
+		focus focusPane
+		want  string
+	}{
+		{focusList, "filter"},
+		{focusMessages, "open media"},
+		{focusComposer, "send"},
+	}
+	for _, tt := range tests {
+		m.setFocus(tt.focus)
+		if got := renderHints(m.contextBindings(), 200); !strings.Contains(got, tt.want) {
+			t.Errorf("focus %v hints %q missing %q", tt.focus, got, tt.want)
 		}
 	}
 }

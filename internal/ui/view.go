@@ -77,7 +77,7 @@ func (m Model) renderConversation() string {
 		status = errorStatusStyle.Width(m.rightWidth).Render(truncate(statusText, m.rightWidth-2))
 	}
 
-	help := helpStyle.Width(m.rightWidth).Render(truncate(m.helpLine(), m.rightWidth-2))
+	help := helpStyle.Width(m.rightWidth).Render(renderHints(m.contextBindings(), m.rightWidth-2))
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -89,45 +89,15 @@ func (m Model) renderConversation() string {
 	)
 }
 
-func (m Model) helpLine() string {
-	switch m.focus {
-	case focusList:
-		return "j/k move · enter open · / filter · s people · tab pane · i compose · ? help · q quit"
-	case focusMessages:
-		return "j/k scroll · n/p media · o open · i compose · h back · tab pane · ? help · q quit"
-	default:
-		return "enter send · esc back · tab pane · ? help"
-	}
-}
-
 func (m Model) renderHelpModal() string {
-	width := 56
-	if m.width > 0 && m.width < width+4 {
-		width = m.width - 4
-	}
-	body := strings.TrimSpace(`
-Navigation
-  j/k  ↑/↓     move or scroll
-  h/l  ←/→     move between panes
-  tab          cycle inbox → chat → compose
-  enter        open chat / send message
-  i a c        focus composer
-  esc          back to inbox
-  /            filter inbox
-  s            search people
-  n p          next / previous media (▸ marks focus)
-  o enter      open focused media outside the TUI
-  ?            toggle this help
-  q            quit
-`)
-	return helpModalStyle.Width(width).Render(
+	return helpModalStyle.Render(
 		lipgloss.JoinVertical(
 			lipgloss.Left,
 			titleStyle.Render("lazyfmess keys"),
 			"",
-			helpStyle.Render(body),
+			renderKeySections(m.keys.sections()),
 			"",
-			helpStyle.Render("press ? or esc to close"),
+			renderHints(m.contextBindings(), 40),
 		),
 	)
 }
