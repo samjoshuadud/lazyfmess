@@ -20,6 +20,7 @@ type keyMap struct {
 	Back      key.Binding
 	Compose   key.Binding
 	People    key.Binding
+	UnlockPIN key.Binding
 	Filter    key.Binding
 	Attach    key.Binding
 	Mute      key.Binding
@@ -80,6 +81,7 @@ func newKeyMap() keyMap {
 		Back:      key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 		Compose:   key.NewBinding(key.WithKeys("i", "a", "c"), key.WithHelp("i", "compose")),
 		People:    key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "people")),
+		UnlockPIN: key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "unlock encrypted history")),
 		Filter:    key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
 		Attach:    key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "attach file")),
 		Mute:      key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mute/unmute")),
@@ -137,7 +139,7 @@ type keySection struct {
 func (k keyMap) sections() [][]keySection {
 	return [][]keySection{
 		{
-			{"Global", []key.Binding{k.JumpChats, k.JumpChat, k.JumpInput, k.NextPane, k.PrevPane, k.PaneLeft, k.PaneRight, k.Back, k.Compose, k.Attach, k.People, k.Filter, k.Help, k.Quit}},
+			{"Global", []key.Binding{k.JumpChats, k.JumpChat, k.JumpInput, k.NextPane, k.PrevPane, k.PaneLeft, k.PaneRight, k.Back, k.Compose, k.Attach, k.People, k.UnlockPIN, k.Filter, k.Help, k.Quit}},
 		},
 		{
 			{"Chats", []key.Binding{k.Up, k.Down, k.OpenChat, k.Mute}},

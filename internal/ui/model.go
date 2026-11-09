@@ -101,6 +101,7 @@ type Model struct {
 	typingSentAt   time.Time
 	backgroundSync func(context.Context) error
 	syncing        bool
+	syncStarted    bool
 	threadsLoaded  bool
 	historyLoading map[int64]bool
 	prefillPIN     string
@@ -157,6 +158,11 @@ type markReadMsg struct {
 const refreshDelay = 150 * time.Millisecond
 
 type refreshNowMsg struct{}
+
+type unlockCheckMsg struct {
+	needs bool
+	err   error
+}
 
 type backgroundSyncMsg struct {
 	err error
@@ -245,14 +251,32 @@ func (m Model) boot() tea.Msg {
 }
 
 func (m *Model) kickHistorySync() tea.Cmd {
-	sync := m.backgroundSync
-	if sync == nil {
+	if m.syncStarted {
 		return nil
 	}
-	m.backgroundSync = nil
+	return m.runBackgroundSync()
+}
+
+func (m *Model) runBackgroundSync() tea.Cmd {
+	sync := m.backgroundSync
+	if sync == nil || m.syncing {
+		return nil
+	}
+	m.syncStarted = true
 	m.syncing = true
 	m.refreshViewport()
 	return m.track(func() tea.Msg { return backgroundSyncMsg{err: sync(m.ctx)} })
+}
+
+func (m *Model) checkUnlock() tea.Cmd {
+	if m.unlocker == nil {
+		return nil
+	}
+	m.status = "checking encrypted history"
+	return m.track(func() tea.Msg {
+		needs, err := m.unlocker.NeedsPIN(m.ctx)
+		return unlockCheckMsg{needs: needs, err: err}
+	})
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -328,10 +352,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.closePINModal()
 		if msg.skipped {
 			m.status = "history unlock skipped"
-		} else {
-			m.status = "history unlocked"
+			return m, m.kickHistorySync()
+		}
+		m.status = "history unlocked"
+		if m.syncStarted {
+			return m, m.runBackgroundSync()
 		}
 		return m, m.kickHistorySync()
+	case unlockCheckMsg:
+		switch {
+		case msg.err != nil:
+			m.showError("encrypted history: " + msg.err.Error())
+		case !msg.needs:
+			return m.Update(toastMsg{message: "nothing to unlock: encrypted history is already unlocked or has no backup"})
+		default:
+			m.openPINModal()
+			return m, textinput.Blink
+		}
+		return m, nil
 	case searchResultMsg:
 		return m.updateSearch(msg)
 	case openPersonMsg:
@@ -567,6 +605,8 @@ func (m Model) updateMain(msg tea.Msg) (Model, tea.Cmd) {
 		return m, m.showPrompt("Send a file", "path to an image, video, or file", func(m *Model, path string) tea.Cmd {
 			return m.queueFile(path)
 		})
+	case key.Matches(k, keys.UnlockPIN):
+		return m, m.checkUnlock()
 	case key.Matches(k, keys.People):
 		m.openSearchModal()
 		return m, textinput.Blink

@@ -110,6 +110,7 @@ The bottom bar always lists the keys for the focused panel, and `?` shows all of
 | `i` `a` `c` | Focus the composer |
 | `s` | Search Messenger people and open a chat |
 | `A` | Send a file to the open chat |
+| `U` | Unlock encrypted history with the PIN |
 | `/` | Filter the inbox |
 | `?` | Show all keys |
 | `q` | Quit |
@@ -162,7 +163,7 @@ The mouse wheel scrolls, and a click focuses a panel.
 
 Encrypted chats receive new messages live with or without a PIN. Older encrypted history needs the same six-digit secure storage PIN as the Messenger web client.
 
-When a backup exists, lazyfmess asks for the PIN at startup. Esc skips the unlock. After unlock, lazyfmess pages older inbox threads and downloads encrypted history in the background, and opening a chat requests its older messages. The PIN is not stored; only the enrolled history device is kept in `history-device.json`.
+When a backup exists, lazyfmess asks for the PIN at startup. Esc skips the unlock, and `U` opens the PIN prompt again later; when nothing is locked, `U` shows a short notice instead. After unlock, lazyfmess pages older inbox threads and downloads encrypted history in the background, and opening a chat requests its older messages. The PIN is not stored; only the enrolled history device is kept in `history-device.json`.
 
 ## Data directory
 
