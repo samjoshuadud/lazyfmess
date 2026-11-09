@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -142,5 +143,49 @@ func TestUpsertAndList(t *testing.T) {
 
 	if filepath.Base(DBFileName) != DBFileName {
 		t.Fatal("unexpected db file name")
+	}
+}
+
+func TestReadState(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, err := Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	base := time.UnixMilli(1_700_000_000_000)
+	if err := s.UpsertThread(ctx, Thread{ID: 5, Title: "Group", UpdatedAt: base.Add(3 * time.Second)}); err != nil {
+		t.Fatalf("UpsertThread: %v", err)
+	}
+	for i, sender := range []int64{1, 2, 3, 2} {
+		msg := Message{ID: fmt.Sprintf("m%d", i), ThreadID: 5, SenderID: sender, Text: "x", Timestamp: base.Add(time.Duration(i) * time.Second)}
+		if err := s.UpsertMessage(ctx, msg); err != nil {
+			t.Fatalf("UpsertMessage: %v", err)
+		}
+	}
+	if err := s.SetLastRead(ctx, 5, base); err != nil {
+		t.Fatalf("SetLastRead: %v", err)
+	}
+	thread, err := s.GetThread(ctx, 5)
+	if err != nil || !thread.Unread() {
+		t.Fatalf("thread unread: %+v err=%v", thread, err)
+	}
+	unread, err := s.UnreadMessageIDs(ctx, 5, 1)
+	if err != nil {
+		t.Fatalf("UnreadMessageIDs: %v", err)
+	}
+	if fmt.Sprint(unread) != "map[2:[m1 m3] 3:[m2]]" {
+		t.Fatalf("unread ids: %v", unread)
+	}
+	if err := s.SetLastRead(ctx, 5, base.Add(3*time.Second)); err != nil {
+		t.Fatalf("SetLastRead: %v", err)
+	}
+	if err := s.SetLastRead(ctx, 5, base); err != nil {
+		t.Fatalf("SetLastRead backwards: %v", err)
+	}
+	thread, _ = s.GetThread(ctx, 5)
+	if thread.Unread() {
+		t.Fatalf("thread should be read: %+v", thread)
 	}
 }

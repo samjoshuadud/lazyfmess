@@ -94,6 +94,7 @@ func (m Model) updateSearch(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		m.closeSearchModal()
 		m.selectedID = msg.threadID
+		m.openedID = msg.threadID
 		m.setFocus(focusMessages)
 		m.status = "opened chat"
 		cmds := []tea.Cmd{m.loadThreads, m.loadMessages(msg.threadID)}

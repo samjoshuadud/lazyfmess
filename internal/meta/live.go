@@ -16,6 +16,7 @@ import (
 type liveMessage struct {
 	message    store.Message
 	threadType table.ThreadType
+	fromMe     bool
 }
 
 func (c *Client) onE2EEEvent(ctx context.Context, evt any) {
@@ -62,6 +63,7 @@ func decodeLiveMessage(evt *events.FBMessage) (liveMessage, bool) {
 			Timestamp: evt.Info.Timestamp,
 		},
 		threadType: threadType,
+		fromMe:     evt.Info.IsFromMe,
 	}, true
 }
 
@@ -85,5 +87,11 @@ func applyLiveMessage(ctx context.Context, s *store.Store, live liveMessage) err
 	}); err != nil {
 		return err
 	}
-	return s.UpsertMessage(ctx, msg)
+	if err := s.UpsertMessage(ctx, msg); err != nil {
+		return err
+	}
+	if live.fromMe {
+		return s.SetLastRead(ctx, msg.ThreadID, msg.Timestamp)
+	}
+	return nil
 }

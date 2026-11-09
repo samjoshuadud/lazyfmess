@@ -49,6 +49,19 @@ type MediaOpener interface {
 	OpenMedia(ctx context.Context, msg store.Message) error
 }
 
+type ReadMarker interface {
+	MarkRead(ctx context.Context, thread store.Thread) error
+}
+
+type Services struct {
+	Sender   Sender
+	History  HistoryLoader
+	Unlocker HistoryUnlocker
+	Searcher PersonSearcher
+	Media    MediaOpener
+	Reader   ReadMarker
+}
+
 type Config struct {
 	PrefillPIN string
 	OnReady    func()
@@ -67,6 +80,7 @@ type Model struct {
 	unlocker      HistoryUnlocker
 	searcher      PersonSearcher
 	media         MediaOpener
+	reader        ReadMarker
 	onReady       func()
 	prefillPIN    string
 	ctx           context.Context
@@ -90,6 +104,8 @@ type Model struct {
 	searchResults []PersonHit
 	searchIndex   int
 	selectedID    int64
+	openedID      int64
+	lastMark      readMark
 	loadedID      int64
 	cursorID      string
 	spans         map[string]lineSpan
@@ -101,6 +117,15 @@ type Model struct {
 	leftWidth     int
 	rightWidth    int
 	messages      []store.Message
+}
+
+type readMark struct {
+	threadID int64
+	activity int64
+}
+
+type markReadMsg struct {
+	err error
 }
 
 type workDoneMsg struct {
@@ -117,16 +142,17 @@ type bootMsg struct {
 	err    error
 }
 
-func New(ctx context.Context, s *store.Store, sender Sender, history HistoryLoader, unlocker HistoryUnlocker, searcher PersonSearcher, media MediaOpener, cfg Config) Model {
+func New(ctx context.Context, s *store.Store, svc Services, cfg Config) Model {
 	composer := newComposer()
 	composer.Blur()
 	return Model{
 		store:      s,
-		sender:     sender,
-		history:    history,
-		unlocker:   unlocker,
-		searcher:   searcher,
-		media:      media,
+		sender:     svc.Sender,
+		history:    svc.History,
+		unlocker:   svc.Unlocker,
+		searcher:   svc.Searcher,
+		media:      svc.Media,
+		reader:     svc.Reader,
 		onReady:    cfg.OnReady,
 		prefillPIN: strings.TrimSpace(cfg.PrefillPIN),
 		ctx:        ctx,
@@ -258,14 +284,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(items) > 0 {
 			m.list.Select(selectedIndex)
 		}
-		m.status = fmt.Sprintf("%d chats", len(items))
+		m.status = threadSummary(msg.threads)
 		if selected == 0 && len(items) > 0 {
 			if item, ok := m.list.SelectedItem().(threadItem); ok {
 				m.selectedID = item.thread.ID
 				return m, m.loadMessages(item.thread.ID)
 			}
 		}
-		return m, nil
+		return m, m.maybeMarkRead()
 	case messagesLoadedMsg:
 		if msg.err != nil {
 			m.showError(msg.err.Error())
@@ -285,7 +311,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if follow {
 			m.viewport.GotoBottom()
 		}
-		return m, nil
+		return m, m.maybeMarkRead()
+	case markReadMsg:
+		if msg.err != nil {
+			return m.Update(toastMsg{message: "mark read: " + msg.err.Error()})
+		}
+		return m, m.loadThreads
 	case editorFinishedMsg:
 		if msg.err != nil {
 			m.showError(msg.err.Error())
@@ -413,8 +444,9 @@ func (m Model) updateMain(msg tea.Msg) (Model, tea.Cmd) {
 			return m, nil
 		}
 		m.selectedID = item.thread.ID
+		m.openedID = item.thread.ID
 		m.setFocus(focusMessages)
-		return m, tea.Batch(m.loadMessages(item.thread.ID), m.track(m.fetchHistory(item.thread)))
+		return m, tea.Batch(m.loadMessages(item.thread.ID), m.track(m.fetchHistory(item.thread)), m.maybeMarkRead())
 	}
 	return m.updateFocused(msg)
 }
@@ -619,7 +651,7 @@ func (m Model) sendPending(thread store.Thread, pending store.Message) error {
 	if err := m.store.UpsertThread(m.ctx, thread); err != nil {
 		return fmt.Errorf("update thread: %w", err)
 	}
-	return nil
+	return m.store.SetLastRead(m.ctx, thread.ID, result.Timestamp)
 }
 
 func (m Model) currentThread() (store.Thread, bool) {
@@ -629,6 +661,37 @@ func (m Model) currentThread() (store.Thread, bool) {
 		}
 	}
 	return store.Thread{}, false
+}
+
+func (m *Model) maybeMarkRead() tea.Cmd {
+	if m.reader == nil || m.openedID == 0 || m.openedID != m.selectedID {
+		return nil
+	}
+	thread, ok := m.currentThread()
+	if !ok || !thread.Unread() {
+		return nil
+	}
+	mark := readMark{threadID: thread.ID, activity: thread.UpdatedAt.UnixMilli()}
+	if mark == m.lastMark {
+		return nil
+	}
+	m.lastMark = mark
+	return func() tea.Msg {
+		return markReadMsg{err: m.reader.MarkRead(m.ctx, thread)}
+	}
+}
+
+func threadSummary(threads []store.Thread) string {
+	unread := 0
+	for _, t := range threads {
+		if t.Unread() {
+			unread++
+		}
+	}
+	if unread == 0 {
+		return fmt.Sprintf("%d chats", len(threads))
+	}
+	return fmt.Sprintf("%d chats · %d unread", len(threads), unread)
 }
 
 func threadTitle(t store.Thread) string {
@@ -642,8 +705,8 @@ type App struct {
 	program *tea.Program
 }
 
-func NewApp(ctx context.Context, s *store.Store, sender Sender, history HistoryLoader, unlocker HistoryUnlocker, searcher PersonSearcher, media MediaOpener, cfg Config) *App {
-	p := tea.NewProgram(New(ctx, s, sender, history, unlocker, searcher, media, cfg), tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithContext(ctx))
+func NewApp(ctx context.Context, s *store.Store, svc Services, cfg Config) *App {
+	p := tea.NewProgram(New(ctx, s, svc, cfg), tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithContext(ctx))
 	return &App{program: p}
 }
 

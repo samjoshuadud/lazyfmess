@@ -93,6 +93,15 @@ func (m mediaAdapter) OpenMedia(ctx context.Context, msg store.Message) error {
 	return m.client.OpenMedia(ctx, msg)
 }
 
+type readAdapter struct {
+	client *meta.Client
+	store  *store.Store
+}
+
+func (r readAdapter) MarkRead(ctx context.Context, thread store.Thread) error {
+	return r.client.MarkRead(ctx, r.store, thread)
+}
+
 type searchAdapter struct {
 	client *meta.Client
 	store  *store.Store
@@ -197,11 +206,14 @@ func run() error {
 	app := ui.NewApp(
 		ctx,
 		db,
-		senderAdapter{client: client},
-		historyAdapter{client: client, store: db},
-		unlockAdapter{client: client},
-		searchAdapter{client: client, store: db},
-		mediaAdapter{client: client},
+		ui.Services{
+			Sender:   senderAdapter{client: client},
+			History:  historyAdapter{client: client, store: db},
+			Unlocker: unlockAdapter{client: client},
+			Searcher: searchAdapter{client: client, store: db},
+			Media:    mediaAdapter{client: client},
+			Reader:   readAdapter{client: client, store: db},
+		},
 		ui.Config{
 			PrefillPIN: *pinFlag,
 			OnReady: func() {

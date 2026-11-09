@@ -186,3 +186,38 @@ func TestApplyTableStoresDeleteThenInsertMessages(t *testing.T) {
 		t.Fatalf("unexpected messages: %+v", msgs)
 	}
 }
+
+func TestApplyTableReadState(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	const activity = 1_700_000_000_000
+	tables := []struct {
+		name   string
+		tbl    *table.LSTable
+		unread bool
+	}{
+		{"unread thread row", &table.LSTable{LSDeleteThenInsertThread: []*table.LSDeleteThenInsertThread{
+			{ThreadKey: 7, ThreadName: "Dana", LastActivityTimestampMs: activity, LastReadWatermarkTimestampMs: activity - 5000},
+		}}, true},
+		{"read elsewhere", &table.LSTable{LSMarkThreadReadV2: []*table.LSMarkThreadReadV2{
+			{ThreadKey: 7, LastReadWatermarkTimestampMs: activity},
+		}}, false},
+	}
+	for _, tt := range tables {
+		if err := ApplyTable(ctx, s, tt.tbl); err != nil {
+			t.Fatalf("%s: ApplyTable: %v", tt.name, err)
+		}
+		thread, err := s.GetThread(ctx, 7)
+		if err != nil {
+			t.Fatalf("%s: GetThread: %v", tt.name, err)
+		}
+		if thread.Unread() != tt.unread {
+			t.Fatalf("%s: unread = %v, thread %+v", tt.name, thread.Unread(), thread)
+		}
+	}
+}

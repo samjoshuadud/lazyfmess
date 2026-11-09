@@ -19,6 +19,11 @@ type Thread struct {
 	LastPreview string
 	ThreadType  int64
 	UpdatedAt   time.Time
+	LastRead    time.Time
+}
+
+func (t Thread) Unread() bool {
+	return t.UpdatedAt.UnixMilli() > t.LastRead.UnixMilli()
 }
 
 type Message struct {
@@ -101,9 +106,14 @@ CREATE INDEX IF NOT EXISTS messages_thread_ts ON messages(thread_id, timestamp_m
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
-	if _, err := s.db.ExecContext(ctx, `ALTER TABLE threads ADD COLUMN thread_type INTEGER NOT NULL DEFAULT 0`); err != nil {
-		if !isDuplicateColumn(err) {
-			return fmt.Errorf("migrate thread_type: %w", err)
+	for _, stmt := range []string{
+		`ALTER TABLE threads ADD COLUMN thread_type INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE threads ADD COLUMN last_read_ms INTEGER NOT NULL DEFAULT 0`,
+	} {
+		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+			if !isDuplicateColumn(err) {
+				return fmt.Errorf("migrate thread columns: %w", err)
+			}
 		}
 	}
 	for _, stmt := range []string{
@@ -264,7 +274,7 @@ func (s *Store) ListThreads(ctx context.Context) ([]Thread, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT t.id,
 	CASE WHEN t.title != '' THEN t.title ELSE COALESCE(c.name, '') END,
-	t.last_preview, t.thread_type, t.updated_at_ms
+	t.last_preview, t.thread_type, t.updated_at_ms, t.last_read_ms
 FROM threads t
 LEFT JOIN contacts c ON c.id = t.id
 ORDER BY t.updated_at_ms DESC, t.id DESC
@@ -276,11 +286,12 @@ ORDER BY t.updated_at_ms DESC, t.id DESC
 	var out []Thread
 	for rows.Next() {
 		var t Thread
-		var ms int64
-		if err := rows.Scan(&t.ID, &t.Title, &t.LastPreview, &t.ThreadType, &ms); err != nil {
+		var ms, readMS int64
+		if err := rows.Scan(&t.ID, &t.Title, &t.LastPreview, &t.ThreadType, &ms, &readMS); err != nil {
 			return nil, fmt.Errorf("scan thread: %w", err)
 		}
 		t.UpdatedAt = time.UnixMilli(ms)
+		t.LastRead = time.UnixMilli(readMS)
 		out = append(out, t)
 	}
 	return out, rows.Err()
@@ -288,19 +299,20 @@ ORDER BY t.updated_at_ms DESC, t.id DESC
 
 func (s *Store) GetThread(ctx context.Context, id int64) (Thread, error) {
 	var t Thread
-	var ms int64
+	var ms, readMS int64
 	err := s.db.QueryRowContext(ctx, `
 SELECT t.id,
 	CASE WHEN t.title != '' THEN t.title ELSE COALESCE(c.name, '') END,
-	t.last_preview, t.thread_type, t.updated_at_ms
+	t.last_preview, t.thread_type, t.updated_at_ms, t.last_read_ms
 FROM threads t
 LEFT JOIN contacts c ON c.id = t.id
 WHERE t.id = ?
-`, id).Scan(&t.ID, &t.Title, &t.LastPreview, &t.ThreadType, &ms)
+`, id).Scan(&t.ID, &t.Title, &t.LastPreview, &t.ThreadType, &ms, &readMS)
 	if err != nil {
 		return Thread{}, fmt.Errorf("get thread: %w", err)
 	}
 	t.UpdatedAt = time.UnixMilli(ms)
+	t.LastRead = time.UnixMilli(readMS)
 	return t, nil
 }
 
@@ -341,6 +353,41 @@ func (s *Store) ThreadCount(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("count threads: %w", err)
 	}
 	return n, nil
+}
+
+func (s *Store) SetLastRead(ctx context.Context, threadID int64, at time.Time) error {
+	if at.IsZero() || at.UnixMilli() <= 0 {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE threads SET last_read_ms = MAX(last_read_ms, ?) WHERE id = ?`, at.UnixMilli(), threadID)
+	if err != nil {
+		return fmt.Errorf("set last read: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) UnreadMessageIDs(ctx context.Context, threadID, selfID int64) (map[int64][]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT m.sender_id, m.id
+FROM messages m
+JOIN threads t ON t.id = m.thread_id
+WHERE m.thread_id = ? AND m.sender_id != ? AND m.timestamp_ms > t.last_read_ms AND m.pending = 0
+ORDER BY m.timestamp_ms ASC
+`, threadID, selfID)
+	if err != nil {
+		return nil, fmt.Errorf("unread messages: %w", err)
+	}
+	defer rows.Close()
+	out := make(map[int64][]string)
+	for rows.Next() {
+		var sender int64
+		var id string
+		if err := rows.Scan(&sender, &id); err != nil {
+			return nil, fmt.Errorf("scan unread message: %w", err)
+		}
+		out[sender] = append(out[sender], id)
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) DeleteMessage(ctx context.Context, id string) error {

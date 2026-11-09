@@ -39,7 +39,7 @@ func TestModelLoadsThreadsAndMessages(t *testing.T) {
 		t.Fatalf("UpsertMessage: %v", err)
 	}
 
-	m := New(ctx, s, stubSender{id: 1}, nil, nil, nil, nil, Config{})
+	m := New(ctx, s, Services{Sender: stubSender{id: 1}}, Config{})
 	msg := m.loadThreads()
 	model, cmd := m.Update(msg)
 	m = model.(Model)
@@ -86,7 +86,7 @@ func TestRefreshReloadsThreads(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 	defer s.Close()
-	m := New(ctx, s, stubSender{id: 1}, nil, nil, nil, nil, Config{})
+	m := New(ctx, s, Services{Sender: stubSender{id: 1}}, Config{})
 	model, cmd := m.Update(RefreshMsg{})
 	m = model.(Model)
 	if cmd == nil {
@@ -108,7 +108,7 @@ func TestHelpToggle(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 	defer s.Close()
-	m := New(ctx, s, stubSender{id: 1}, nil, nil, nil, nil, Config{})
+	m := New(ctx, s, Services{Sender: stubSender{id: 1}}, Config{})
 	m.ready = true
 	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
 	m = model.(Model)
@@ -147,7 +147,7 @@ func TestPeopleSearchOpensChat(t *testing.T) {
 	searcher := &stubSearcher{
 		results: []PersonHit{{ID: 42, Name: "Dana", Context: "person", ThreadType: 1}},
 	}
-	m := New(ctx, s, stubSender{id: 1}, nil, nil, searcher, nil, Config{})
+	m := New(ctx, s, Services{Sender: stubSender{id: 1}, Searcher: searcher}, Config{})
 	m.ready = true
 	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	m = model.(Model)
@@ -194,7 +194,7 @@ func newTestModel(t *testing.T, threads int, messagesPerThread int) Model {
 			}
 		}
 	}
-	m := New(ctx, s, stubSender{id: 1}, nil, nil, nil, nil, Config{})
+	m := New(ctx, s, Services{Sender: stubSender{id: 1}}, Config{})
 	m = drain(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 	return drain(t, m, m.loadThreads())
 }

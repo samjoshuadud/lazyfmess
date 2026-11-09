@@ -47,7 +47,7 @@ func ApplyTable(ctx context.Context, s *store.Store, tbl *table.LSTable) error {
 			return err
 		}
 	}
-	return nil
+	return applyReadMarks(ctx, s, tbl)
 }
 
 func applyContacts(ctx context.Context, s *store.Store, tbl *table.LSTable) error {
@@ -163,13 +163,36 @@ func upsertThread(ctx context.Context, s *store.Store, thread table.ThreadInfo) 
 	default:
 		threadType = int64(thread.GetThreadType())
 	}
-	return s.UpsertThread(ctx, store.Thread{
+	if err := s.UpsertThread(ctx, store.Thread{
 		ID:          key,
 		Title:       title,
 		LastPreview: preview,
 		ThreadType:  threadType,
 		UpdatedAt:   updatedAt,
-	})
+	}); err != nil {
+		return err
+	}
+	return s.SetLastRead(ctx, key, time.UnixMilli(thread.GetLastReadWatermarkTimestampMs()))
+}
+
+func applyReadMarks(ctx context.Context, s *store.Store, tbl *table.LSTable) error {
+	marks := make(map[int64]int64)
+	for _, mark := range tbl.LSMarkThreadRead {
+		marks[mark.ThreadKey] = max(marks[mark.ThreadKey], mark.LastReadWatermarkTimestampMs)
+	}
+	for _, mark := range tbl.LSMarkThreadReadV2 {
+		marks[mark.ThreadKey] = max(marks[mark.ThreadKey], mark.LastReadWatermarkTimestampMs)
+	}
+	for threadKey, watermark := range marks {
+		key, err := resolveThreadKey(ctx, s, threadKey)
+		if err != nil {
+			return err
+		}
+		if err := s.SetLastRead(ctx, key, time.UnixMilli(watermark)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func upsertWrapped(ctx context.Context, s *store.Store, msg *table.WrappedMessage) error {

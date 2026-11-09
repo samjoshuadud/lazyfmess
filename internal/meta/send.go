@@ -12,7 +12,6 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waConsumerApplication"
-	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
 
 	"lazyfmess/internal/store"
@@ -73,11 +72,7 @@ func (c *Client) sendE2EEText(ctx context.Context, thread store.Thread, text str
 	}
 	otid := methods.GenerateEpochID()
 	msgID := strconv.FormatInt(otid, 10)
-	server := types.MessengerServer
-	if table.ThreadType(thread.ThreadType) == table.ENCRYPTED_OVER_WA_GROUP {
-		server = types.GroupServer
-	}
-	chat := types.JID{User: strconv.FormatInt(thread.ID, 10), Server: server}
+	chat := chatJID(thread)
 	payload := &waConsumerApplication.ConsumerApplication{
 		Payload: &waConsumerApplication.ConsumerApplication_Payload{
 			Payload: &waConsumerApplication.ConsumerApplication_Payload_Content{
