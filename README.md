@@ -18,7 +18,7 @@ lazyfmess is not affiliated with, endorsed by, or sponsored by Meta Platforms, I
 ## Requirements
 
 - Go 1.27.3, or the Nix flake in this repository
-- A Messenger session cookie export (see [Login](#login))
+- A Messenger account (see [Login](#login))
 
 ## Build
 
@@ -38,16 +38,25 @@ go build -o lazyfmess ./cmd/lazyfmess
 
 ## Login
 
-lazyfmess logs in with cookies from a browser session. The password and any two-factor prompts stay in the browser; lazyfmess never handles them.
+Without a saved session, lazyfmess opens a login screen with these options:
 
-1. Open a private browser window, log in to messenger.com, and confirm the inbox loads.
-2. Export the cookies for messenger.com with a cookie export extension.
-3. Close the private window without logging out. Logging out ends the exported session as well.
-4. Save the export as `cookies.json` in the [data directory](#data-directory).
+| Option | How it works |
+|---|---|
+| Log in with Messenger account | Uses the same login as the Messenger mobile app. Email and password, two-factor codes, and "approve from another device" prompts appear in the terminal. The password goes only to Meta and is never stored. |
+| Import cookies from a browser | Reads the messenger.com or facebook.com session from a browser profile that is logged in. Firefox works directly. Chromium-based browsers work when their cookies are not locked in the system keyring. Linux only. |
+| Paste browser cookies | Accepts a cookie export pasted into the screen. |
 
-lazyfmess saves the refreshed cookies Messenger sends back during a session to `cookies.json`, so the session keeps working across restarts.
+Account login keeps a long-lived mobile session token. When the web cookies expire, lazyfmess uses that token to get fresh cookies without asking again. The session ends only when it is revoked, for example by a password change or by logging out of all sessions in the Facebook security settings.
 
-Two formats are accepted. The array form from a browser export picks `messenger` or `facebook` from the cookie domain:
+Cookie logins depend on the browser session they came from. Export or import from a private window, then close it without logging out; logging out ends the exported session as well. During use, lazyfmess saves the refreshed cookies Messenger sends back, so the session keeps working across restarts.
+
+If Meta asks for a security check, or a step that needs a web page such as reCAPTCHA, finish it in a browser or the official app, then log in again or use the cookie options.
+
+When a session expires and cannot be renewed, the login screen opens again. To log out, quit lazyfmess and delete `cookies.json` from the data directory.
+
+### Cookie file format
+
+The session is stored in `cookies.json`. A browser export can also be placed there directly. The array form picks `messenger` or `facebook` from the cookie domain:
 
 ```json
 [
@@ -70,9 +79,7 @@ The object form names the platform explicitly:
 }
 ```
 
-`platform` accepts `messenger`, `facebook`, `facebook-tor`, `messenger-lite`, and `messenger-lite-android`.
-
-When a session expires or is rejected, the connection error appears in a popup. Log in again in the browser, export fresh cookies, and replace `cookies.json`. An old export does not work.
+`platform` accepts `messenger`, `facebook`, `facebook-tor`, `messenger-lite`, and `messenger-lite-android`. After an account login, the file also holds a `native_session` entry with the mobile session token.
 
 ## Usage
 
@@ -163,7 +170,7 @@ The default is `os.UserConfigDir()/lazyfmess`, which is `$XDG_CONFIG_HOME/lazyfm
 
 | File | Contents |
 |---|---|
-| `cookies.json` | Session cookies |
+| `cookies.json` | Session cookies and, after an account login, the mobile session token |
 | `messagix-state.json` | Saved connection state |
 | `device.db` | End-to-end encryption device keys |
 | `history-device.json` | Enrolled encrypted history device |
