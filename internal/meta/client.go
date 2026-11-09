@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"go.mau.fi/mautrix-meta/pkg/messagix"
 	"go.mau.fi/mautrix-meta/pkg/messagix/cookies"
@@ -45,6 +46,7 @@ type Client struct {
 	platform      string
 	cookieMu      sync.Mutex
 	savedCookies  map[string]string
+	savedNative   *session.NativeSession
 	ready         chan struct{}
 	connectErr    error
 }
@@ -62,8 +64,16 @@ func New(sess *session.Cookies, dataDir string, logWriter io.Writer, handler Eve
 	cli.cookieUserID, _ = strconv.ParseInt(sess.Values["c_user"], 10, 64)
 	cli.platform = sess.Platform
 	cli.savedCookies = sess.Values
+	cli.savedNative = sess.NativeSession
 	cli.mx = messagix.NewClient(mc, logger, &messagix.Config{})
 	cli.mx.SetEventHandler(cli.onEvent)
+	if sess.NativeSession != nil {
+		native, err := toMessagixNative(sess.NativeSession)
+		if err != nil {
+			return nil, err
+		}
+		cli.mx.MessengerLite.SetNativeSession(native)
+	}
 	if err := cli.loadHistoryDevice(); err != nil {
 		return nil, err
 	}
@@ -72,6 +82,13 @@ func New(sess *session.Cookies, dataDir string, logWriter io.Writer, handler Eve
 
 func (c *Client) Connect(ctx context.Context) error {
 	err := c.connect(ctx)
+	if shouldRefreshCookies(err, c.mx.MessengerLite.GetNativeSession()) {
+		if refreshErr := c.refreshCookies(ctx); refreshErr != nil {
+			err = fmt.Errorf("%w; renewing the session from the saved login failed: %v", err, refreshErr)
+		} else {
+			err = c.connect(ctx)
+		}
+	}
 	c.connectErr = err
 	close(c.ready)
 	if err == nil {
@@ -91,12 +108,63 @@ func (c *Client) persistCookies() {
 	for name, value := range live.GetAll() {
 		values[string(name)] = value
 	}
-	if maps.Equal(values, c.savedCookies) {
+	native := fromMessagixNative(c.mx.MessengerLite.GetNativeSession())
+	if maps.Equal(values, c.savedCookies) && equalNative(native, c.savedNative) {
 		return
 	}
-	if err := session.SaveCookies(c.dataDir, &session.Cookies{Platform: c.platform, Values: values}); err == nil {
+	if err := session.SaveCookies(c.dataDir, &session.Cookies{Platform: c.platform, Values: values, NativeSession: native}); err == nil {
 		c.savedCookies = values
+		c.savedNative = native
 	}
+}
+
+func shouldRefreshCookies(connectErr error, native *types.NativeSession) bool {
+	return errors.Is(connectErr, httpclient.ErrTokenInvalidated) && native != nil && native.AccessToken != ""
+}
+
+func (c *Client) refreshCookies(ctx context.Context) error {
+	native := c.mx.MessengerLite.GetNativeSession()
+	fresh, err := c.mx.MessengerLite.ExchangeTransientToken(ctx, native.AccessToken)
+	if err != nil {
+		return fmt.Errorf("exchange saved login token: %w", err)
+	}
+	if fresh.GetUserID() != c.cookieUserID && c.cookieUserID != 0 {
+		return fmt.Errorf("exchange saved login token: account does not match")
+	}
+	c.mx.GetCookies().UpdateValues(fresh.GetAll())
+	c.persistCookies()
+	return nil
+}
+
+func toMessagixNative(s *session.NativeSession) (*types.NativeSession, error) {
+	deviceID, err := uuid.Parse(s.DeviceID)
+	if err != nil {
+		return nil, fmt.Errorf("parse native session device id: %w", err)
+	}
+	familyID, err := uuid.Parse(s.FamilyDeviceID)
+	if err != nil {
+		return nil, fmt.Errorf("parse native session family device id: %w", err)
+	}
+	return &types.NativeSession{AccessToken: s.AccessToken, AppID: s.AppID, DeviceID: deviceID, FamilyDeviceID: familyID}, nil
+}
+
+func fromMessagixNative(s *types.NativeSession) *session.NativeSession {
+	if s == nil || s.AccessToken == "" {
+		return nil
+	}
+	return &session.NativeSession{
+		AccessToken:    s.AccessToken,
+		AppID:          s.AppID,
+		DeviceID:       s.DeviceID.String(),
+		FamilyDeviceID: s.FamilyDeviceID.String(),
+	}
+}
+
+func equalNative(a, b *session.NativeSession) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 func (c *Client) waitReady(ctx context.Context) error {
@@ -125,9 +193,13 @@ func (c *Client) connect(ctx context.Context) error {
 			return fmt.Errorf("load account from state: %w", err)
 		}
 		c.user = user
-		if u, initial, err := c.mx.LoadMessagesPage(ctx); err == nil {
+		u, initial, err := c.mx.LoadMessagesPage(ctx)
+		switch {
+		case err == nil:
 			c.user = u
 			c.initial = initial
+		case errors.Is(err, httpclient.ErrTokenInvalidated):
+			return fmt.Errorf("load messages page: %w", mapConnectError(err))
 		}
 	}
 
@@ -225,6 +297,9 @@ func (c *Client) setupE2EE(ctx context.Context) error {
 	}
 	c.device = device
 	c.newDevice = isNew
+	if native := c.mx.MessengerLite.GetNativeSession(); isNew && native != nil {
+		device.FacebookUUID = native.DeviceID
+	}
 	c.mx.SetDevice(device)
 	if isNew {
 		fbid := c.AccountID()

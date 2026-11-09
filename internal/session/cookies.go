@@ -12,13 +12,22 @@ import (
 const CookiesFileName = "cookies.json"
 
 type Cookies struct {
-	Platform string
-	Values   map[string]string
+	Platform      string
+	Values        map[string]string
+	NativeSession *NativeSession
+}
+
+type NativeSession struct {
+	AccessToken    string `json:"access_token"`
+	AppID          string `json:"app_id"`
+	DeviceID       string `json:"device_id"`
+	FamilyDeviceID string `json:"family_device_id"`
 }
 
 type cookieFile struct {
-	Platform string            `json:"platform"`
-	Cookies  map[string]string `json:"cookies"`
+	Platform      string            `json:"platform"`
+	Cookies       map[string]string `json:"cookies"`
+	NativeSession *NativeSession    `json:"native_session,omitempty"`
 }
 
 type browserCookie struct {
@@ -55,11 +64,11 @@ func LoadCookies(dataDir string) (*Cookies, error) {
 			return nil, fmt.Errorf("parse cookies: missing required cookie %q", name)
 		}
 	}
-	return &Cookies{Platform: file.Platform, Values: file.Cookies}, nil
+	return &Cookies{Platform: file.Platform, Values: file.Cookies, NativeSession: file.NativeSession}, nil
 }
 
 func SaveCookies(dataDir string, c *Cookies) error {
-	data, err := json.MarshalIndent(cookieFile{Platform: c.Platform, Cookies: c.Values}, "", "  ")
+	data, err := json.MarshalIndent(cookieFile{Platform: c.Platform, Cookies: c.Values, NativeSession: c.NativeSession}, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode cookies: %w", err)
 	}
