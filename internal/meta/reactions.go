@@ -19,6 +19,9 @@ import (
 )
 
 func (c *Client) React(ctx context.Context, s *store.Store, thread store.Thread, msg store.Message, emoji string) error {
+	if err := c.waitReady(ctx); err != nil {
+		return err
+	}
 	now := time.Now()
 	if table.ThreadType(thread.ThreadType).IsWhatsApp() {
 		if c.e2ee == nil {

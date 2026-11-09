@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"strconv"
 	"sync"
 	"time"
 
@@ -39,6 +40,9 @@ type Client struct {
 	historyDevice *securehistory.Device
 	mediaMu       sync.Mutex
 	tempMedia     []string
+	cookieUserID  int64
+	ready         chan struct{}
+	connectErr    error
 }
 
 func New(sess *session.Cookies, dataDir string, logWriter io.Writer, handler EventHandler) (*Client, error) {
@@ -50,7 +54,8 @@ func New(sess *session.Cookies, dataDir string, logWriter io.Writer, handler Eve
 	if logWriter != nil {
 		logger = zerolog.New(logWriter).With().Timestamp().Logger()
 	}
-	cli := &Client{handler: handler, dataDir: dataDir}
+	cli := &Client{handler: handler, dataDir: dataDir, ready: make(chan struct{})}
+	cli.cookieUserID, _ = strconv.ParseInt(sess.Values["c_user"], 10, 64)
 	cli.mx = messagix.NewClient(mc, logger, &messagix.Config{})
 	cli.mx.SetEventHandler(cli.onEvent)
 	if err := cli.loadHistoryDevice(); err != nil {
@@ -60,6 +65,25 @@ func New(sess *session.Cookies, dataDir string, logWriter io.Writer, handler Eve
 }
 
 func (c *Client) Connect(ctx context.Context) error {
+	err := c.connect(ctx)
+	c.connectErr = err
+	close(c.ready)
+	return err
+}
+
+func (c *Client) waitReady(ctx context.Context) error {
+	select {
+	case <-c.ready:
+		if c.connectErr != nil {
+			return fmt.Errorf("not connected: %w", c.connectErr)
+		}
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (c *Client) connect(ctx context.Context) error {
 	if err := c.loadCachedState(); err != nil {
 		user, initial, err := c.mx.LoadMessagesPage(ctx)
 		if err != nil {
@@ -120,6 +144,14 @@ func (c *Client) AccountName() string {
 }
 
 func (c *Client) AccountID() int64 {
+	if c.cookieUserID != 0 {
+		return c.cookieUserID
+	}
+	select {
+	case <-c.ready:
+	default:
+		return 0
+	}
 	if c.user == nil {
 		return 0
 	}

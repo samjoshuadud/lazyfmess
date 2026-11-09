@@ -71,6 +71,7 @@ type Services struct {
 
 type Config struct {
 	PrefillPIN string
+	Connecting bool
 	OnReady    func()
 }
 
@@ -103,6 +104,7 @@ type Model struct {
 	viewport       viewport.Model
 	spinner        spinner.Model
 	inFlight       int
+	connecting     bool
 	popup          *popup
 	composer       textarea.Model
 	pinInput       textinput.Model
@@ -145,6 +147,10 @@ type markReadMsg struct {
 	err error
 }
 
+type connectedMsg struct {
+	err error
+}
+
 type workDoneMsg struct {
 	msg tea.Msg
 }
@@ -162,7 +168,7 @@ type bootMsg struct {
 func New(ctx context.Context, s *store.Store, svc Services, cfg Config) Model {
 	composer := newComposer()
 	composer.Blur()
-	return Model{
+	m := Model{
 		store:          s,
 		sender:         svc.Sender,
 		history:        svc.History,
@@ -187,9 +193,17 @@ func New(ctx context.Context, s *store.Store, svc Services, cfg Config) Model {
 		focus:          focusList,
 		status:         "loading",
 	}
+	if cfg.Connecting {
+		m.connecting = true
+		m.inFlight = 1
+	}
+	return m
 }
 
 func (m Model) Init() tea.Cmd {
+	if m.connecting {
+		return tea.Batch(m.loadThreads, m.boot, m.spinner.Tick)
+	}
 	return tea.Batch(m.loadThreads, m.boot)
 }
 
@@ -239,6 +253,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		m.refreshViewport()
 		return m, nil
+	case connectedMsg:
+		m.connecting = false
+		m.inFlight--
+		if msg.err != nil {
+			m.showError("Could not connect to Messenger: " + msg.err.Error())
+			return m, nil
+		}
+		return m, m.loadThreads
 	case errorMsg:
 		m.showError(msg.text)
 		return m, nil
@@ -863,6 +885,13 @@ func (a *App) Toast(message string) {
 		return
 	}
 	a.program.Send(toastMsg{message: message})
+}
+
+func (a *App) Connected(err error) {
+	if a == nil || a.program == nil {
+		return
+	}
+	a.program.Send(connectedMsg{err: err})
 }
 
 func (a *App) Typing(threadID, senderID int64, active bool) {

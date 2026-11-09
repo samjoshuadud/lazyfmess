@@ -96,6 +96,9 @@ func mediaKind(attType table.AttachmentType) string {
 }
 
 func (c *Client) OpenMedia(ctx context.Context, msg store.Message) error {
+	if err := c.waitReady(ctx); err != nil {
+		return err
+	}
 	if c != nil {
 		c.purgeLegacyMediaCache()
 	}

@@ -70,6 +70,9 @@ func (m Model) renderStatusBar() string {
 		text = m.toast
 		style = toastStyle
 	}
+	if m.connecting {
+		text = "connecting to Messenger… · " + text
+	}
 	right := ansi.Truncate(text, m.width/2, "…")
 	if m.inFlight > 0 {
 		right = m.spinner.View() + " " + right

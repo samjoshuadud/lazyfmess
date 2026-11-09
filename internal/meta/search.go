@@ -21,6 +21,9 @@ type Person struct {
 }
 
 func (c *Client) SearchPeople(ctx context.Context, query string) ([]Person, error) {
+	if err := c.waitReady(ctx); err != nil {
+		return nil, err
+	}
 	if c == nil || c.mx == nil {
 		return nil, fmt.Errorf("search people: client is nil")
 	}
@@ -75,6 +78,9 @@ func (c *Client) SearchPeople(ctx context.Context, query string) ([]Person, erro
 }
 
 func (c *Client) OpenPerson(ctx context.Context, s *store.Store, person Person) (store.Thread, error) {
+	if err := c.waitReady(ctx); err != nil {
+		return store.Thread{}, err
+	}
 	if c == nil || c.mx == nil || s == nil || person.ID == 0 {
 		return store.Thread{}, fmt.Errorf("open person: missing client, store, or person")
 	}

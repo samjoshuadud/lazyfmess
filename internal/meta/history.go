@@ -54,6 +54,9 @@ func (c *Client) HistoryDevice() *securehistory.Device {
 }
 
 func (c *Client) NeedsHistoryPIN(ctx context.Context) (bool, error) {
+	if err := c.waitReady(ctx); err != nil {
+		return false, err
+	}
 	if c.HasHistoryDevice() {
 		return false, nil
 	}
@@ -68,6 +71,9 @@ func (c *Client) NeedsHistoryPIN(ctx context.Context) (bool, error) {
 }
 
 func (c *Client) UnlockHistory(ctx context.Context, pin string) error {
+	if err := c.waitReady(ctx); err != nil {
+		return err
+	}
 	if c == nil || c.mx == nil {
 		return fmt.Errorf("unlock history: client is nil")
 	}
@@ -122,6 +128,9 @@ func (c *Client) saveHistoryDevice(device *securehistory.Device) error {
 }
 
 func (c *Client) SyncInboxThreads(ctx context.Context, s *store.Store) error {
+	if err := c.waitReady(ctx); err != nil {
+		return err
+	}
 	if c == nil || c.mx == nil || s == nil {
 		return nil
 	}
@@ -154,6 +163,9 @@ func (c *Client) SyncInboxThreads(ctx context.Context, s *store.Store) error {
 }
 
 func (c *Client) SyncThreadHistory(ctx context.Context, s *store.Store, thread store.Thread) error {
+	if err := c.waitReady(ctx); err != nil {
+		return err
+	}
 	if c == nil || s == nil || thread.ID == 0 {
 		return nil
 	}
@@ -164,6 +176,9 @@ func (c *Client) SyncThreadHistory(ctx context.Context, s *store.Store, thread s
 }
 
 func (c *Client) SyncAllEncryptedHistory(ctx context.Context, s *store.Store) error {
+	if err := c.waitReady(ctx); err != nil {
+		return err
+	}
 	threads, err := s.ListThreads(ctx)
 	if err != nil {
 		return err

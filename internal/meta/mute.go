@@ -10,6 +10,9 @@ import (
 )
 
 func (c *Client) SetMuted(ctx context.Context, s *store.Store, thread store.Thread, muted bool) error {
+	if err := c.waitReady(ctx); err != nil {
+		return err
+	}
 	var until int64
 	if muted {
 		until = -1

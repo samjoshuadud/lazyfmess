@@ -86,6 +86,9 @@ func readAttachment(path string) (attachment, error) {
 }
 
 func (c *Client) SendFile(ctx context.Context, thread store.Thread, path string) (SendResult, error) {
+	if err := c.waitReady(ctx); err != nil {
+		return SendResult{}, err
+	}
 	a, err := readAttachment(path)
 	if err != nil {
 		return SendResult{}, err

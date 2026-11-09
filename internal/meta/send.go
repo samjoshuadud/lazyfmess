@@ -25,6 +25,9 @@ type SendResult struct {
 }
 
 func (c *Client) SendText(ctx context.Context, thread store.Thread, text string, replyTo store.Message) (SendResult, error) {
+	if err := c.waitReady(ctx); err != nil {
+		return SendResult{}, err
+	}
 	text = trimMessage(text)
 	if text == "" {
 		return SendResult{}, fmt.Errorf("message is empty")

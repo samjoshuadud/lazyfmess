@@ -23,6 +23,9 @@ type messageChange struct {
 }
 
 func (c *Client) Edit(ctx context.Context, s *store.Store, thread store.Thread, msg store.Message, text string) error {
+	if err := c.waitReady(ctx); err != nil {
+		return err
+	}
 	text = trimMessage(text)
 	if text == "" {
 		return fmt.Errorf("edited message is empty")
@@ -47,6 +50,9 @@ func (c *Client) Edit(ctx context.Context, s *store.Store, thread store.Thread, 
 }
 
 func (c *Client) Unsend(ctx context.Context, s *store.Store, thread store.Thread, msg store.Message) error {
+	if err := c.waitReady(ctx); err != nil {
+		return err
+	}
 	if table.ThreadType(thread.ThreadType).IsWhatsApp() {
 		payload := &waConsumerApplication.ConsumerApplication{
 			Payload: &waConsumerApplication.ConsumerApplication_Payload{

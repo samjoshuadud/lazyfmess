@@ -20,6 +20,9 @@ type Typing struct {
 }
 
 func (c *Client) SetTyping(ctx context.Context, thread store.Thread, active bool) error {
+	if err := c.waitReady(ctx); err != nil {
+		return err
+	}
 	threadType := table.ThreadType(thread.ThreadType)
 	if threadType.IsWhatsApp() {
 		if c.e2ee == nil {

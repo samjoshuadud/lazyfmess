@@ -14,6 +14,9 @@ import (
 )
 
 func (c *Client) MarkRead(ctx context.Context, s *store.Store, thread store.Thread) error {
+	if err := c.waitReady(ctx); err != nil {
+		return err
+	}
 	if !thread.Unread() {
 		return nil
 	}

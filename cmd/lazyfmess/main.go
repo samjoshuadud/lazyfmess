@@ -250,13 +250,6 @@ func run() error {
 	}
 	defer client.Disconnect()
 
-	if err := client.Connect(ctx); err != nil {
-		return err
-	}
-	if err := meta.ApplyTable(ctx, db, client.InitialTable()); err != nil {
-		return fmt.Errorf("sync initial table: %w", err)
-	}
-
 	app := ui.NewApp(
 		ctx,
 		db,
@@ -274,13 +267,34 @@ func run() error {
 		},
 		ui.Config{
 			PrefillPIN: *pinFlag,
+			Connecting: true,
 			OnReady: func() {
 				go syncHistoryBackground(ctx, client, db, appRef.Load())
 			},
 		},
 	)
 	appRef.Store(app)
-	return app.Run()
+
+	connectCtx, cancelConnect := context.WithCancel(ctx)
+	connected := make(chan struct{})
+	go func() {
+		defer close(connected)
+		app.Connected(connect(connectCtx, client, db))
+	}()
+	err = app.Run()
+	cancelConnect()
+	<-connected
+	return err
+}
+
+func connect(ctx context.Context, client *meta.Client, db *store.Store) error {
+	if err := client.Connect(ctx); err != nil {
+		return err
+	}
+	if err := meta.ApplyTable(ctx, db, client.InitialTable()); err != nil {
+		return fmt.Errorf("sync initial table: %w", err)
+	}
+	return nil
 }
 
 func syncHistoryBackground(ctx context.Context, client *meta.Client, db *store.Store, app *ui.App) {
