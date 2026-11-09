@@ -173,13 +173,14 @@ func run() error {
 		case evt.Type == "reconnected":
 			app.Toast("reconnected")
 		}
-		if evt.Table == nil {
+		changed, err := meta.ApplyEvent(evtCtx, db, evt)
+		if err != nil {
+			log.Error().Err(err).Str("event", evt.Type).Msg("apply event")
 			return
 		}
-		if err := meta.ApplyTable(evtCtx, db, evt.Table); err != nil {
-			return
+		if changed {
+			app.Notify()
 		}
-		app.Notify()
 	})
 	if err != nil {
 		return err

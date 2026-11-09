@@ -29,6 +29,7 @@ type Event struct {
 	Type  string
 	Table *table.LSTable
 	Err   error
+	live  *liveMessage
 }
 
 type Client struct {
@@ -91,6 +92,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	if err := c.mx.Connect(ctx); err != nil {
 		return fmt.Errorf("connect socket: %w", err)
 	}
+	c.e2ee.AddEventHandler(func(evt any) { c.onE2EEEvent(ctx, evt) })
 	if err := c.e2ee.Connect(); err != nil {
 		return fmt.Errorf("connect e2ee: %w", err)
 	}

@@ -54,6 +54,8 @@ Protocol logs go to `lazyfmess.log`. The terminal stays with the TUI. Pass `-ver
 
 Encrypted Messenger history uses the same six-digit secure storage PIN as the web client. When a backup exists, lazyfmess opens an in-app PIN modal (shown as ******). Esc skips unlock. Pass `-pin 123456` to unlock without the modal. The PIN is not stored; only the enrolled history device is kept in `history-device.json`.
 
+New messages in encrypted chats arrive live over the end-to-end encrypted connection, with or without the PIN.
+
 After unlock, lazyfmess pages older inbox threads and pulls encrypted DM history in the background. Opening a chat also requests older messages for that thread.
 
 ## Build and run
