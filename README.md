@@ -1,6 +1,6 @@
 # lazyfmess
 
-Unofficial terminal client for Messenger, with lazygit-style keyboard navigation.
+Unofficial terminal client for Facebook Messenger.
 
 ![lazyfmess demo: browsing chats, sending a message, reacting, and the key help](docs/demo.gif)
 

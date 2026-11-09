@@ -8,7 +8,7 @@ First release.
 
 ### Interface
 
-- Three panels (chats, messages, compose) with numbered frames, jump keys `1` `2` `3`, and lazygit-style navigation.
+- Three panels (chats, messages, compose) with numbered frames, jump keys `1` `2` `3`, and keyboard navigation.
 - A bottom bar with the keys for the focused panel, plus a spinner, connection state, and unread count.
 - Popups drawn over the interface for errors, confirmations, action menus, key help, people search, and the PIN prompt.
 - Inbox rows with relative timestamps, unread markers, and muted markers. Day separators in chats.
