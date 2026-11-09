@@ -220,7 +220,14 @@ func runCmd(cmd tea.Cmd) []tea.Msg {
 	if cmd == nil {
 		return nil
 	}
-	msg := cmd()
+	done := make(chan tea.Msg, 1)
+	go func() { done <- cmd() }()
+	var msg tea.Msg
+	select {
+	case msg = <-done:
+	case <-time.After(250 * time.Millisecond):
+		return nil
+	}
 	if batch, ok := msg.(tea.BatchMsg); ok {
 		var out []tea.Msg
 		for _, c := range batch {
@@ -232,9 +239,6 @@ func runCmd(cmd tea.Cmd) []tea.Msg {
 		return nil
 	}
 	if _, ok := msg.(tea.QuitMsg); ok {
-		return nil
-	}
-	if strings.HasPrefix(fmt.Sprintf("%T", msg), "cursor.") {
 		return nil
 	}
 	return []tea.Msg{msg}

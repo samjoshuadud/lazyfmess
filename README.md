@@ -97,6 +97,7 @@ Controls follow common lazy-style TUI navigation:
 - `tab` cycles inbox → chat → compose
 - `h`/`l` move between panes
 - `/` filters the inbox
+- `m` mutes or unmutes the selected chat in the inbox
 - `s` searches Messenger people and opens a chat
 - `A` sends a file to the open chat; images and videos go as media, anything else as a document (25 MB limit, `~` expands to the home directory)
 - `n` / `p` moves to the next or previous image or video

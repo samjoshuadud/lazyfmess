@@ -66,6 +66,7 @@ type Services struct {
 	Typing   TypingNotifier
 	Reactor  Reactor
 	Editor   MessageEditor
+	Muter    Muter
 }
 
 type Config struct {
@@ -90,6 +91,7 @@ type Model struct {
 	typingNotifier TypingNotifier
 	reactor        Reactor
 	messageEditor  MessageEditor
+	muter          Muter
 	typing         map[int64]map[int64]time.Time
 	typingThread   int64
 	typingSentAt   time.Time
@@ -171,6 +173,7 @@ func New(ctx context.Context, s *store.Store, svc Services, cfg Config) Model {
 		typingNotifier: svc.Typing,
 		reactor:        svc.Reactor,
 		messageEditor:  svc.Editor,
+		muter:          svc.Muter,
 		typing:         make(map[int64]map[int64]time.Time),
 		onReady:        cfg.OnReady,
 		prefillPIN:     strings.TrimSpace(cfg.PrefillPIN),
@@ -342,6 +345,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "typing indicator failed"
 		}
 		return m, nil
+	case mutedMsg:
+		if msg.err != nil {
+			m.showError(msg.err.Error())
+			return m, nil
+		}
+		notice := "chat unmuted"
+		if msg.muted {
+			notice = "chat muted"
+		}
+		model, cmd := m.Update(toastMsg{message: notice})
+		return model, tea.Batch(cmd, m.loadThreads)
 	case editedMsg:
 		if msg.err != nil {
 			m.showError(msg.err.Error())
@@ -474,6 +488,8 @@ func (m Model) updateMain(msg tea.Msg) (Model, tea.Cmd) {
 	case key.Matches(k, keys.Compose) && m.selectedID != 0:
 		m.setFocus(focusComposer)
 		return m, nil
+	case key.Matches(k, keys.Mute) && m.focus == focusList:
+		return m, m.toggleMute()
 	case key.Matches(k, keys.Attach) && m.selectedID != 0:
 		return m, m.showPrompt("Send a file", "path to an image, video, or file", func(m *Model, path string) tea.Cmd {
 			return m.queueFile(path)

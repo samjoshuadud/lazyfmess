@@ -39,6 +39,9 @@ func (threadDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	if !t.thread.UpdatedAt.IsZero() {
 		when = timeStyle.Render(shortTime(t.thread.UpdatedAt, time.Now()))
 	}
+	if t.thread.Muted(time.Now()) {
+		when = timeStyle.Render("muted") + " " + when
+	}
 	if t.thread.Unread() {
 		titleStyle = titleStyle.Bold(true)
 		previewStyle = previewStyle.Foreground(text)

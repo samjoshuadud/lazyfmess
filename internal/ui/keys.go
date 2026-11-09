@@ -22,6 +22,7 @@ type keyMap struct {
 	People    key.Binding
 	Filter    key.Binding
 	Attach    key.Binding
+	Mute      key.Binding
 	JumpChats key.Binding
 	JumpChat  key.Binding
 	JumpInput key.Binding
@@ -75,6 +76,7 @@ func newKeyMap() keyMap {
 		People:    key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "people")),
 		Filter:    key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
 		Attach:    key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "attach file")),
+		Mute:      key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mute/unmute")),
 		JumpChats: key.NewBinding(key.WithKeys("1"), key.WithHelp("1", "chats")),
 		JumpChat:  key.NewBinding(key.WithKeys("2"), key.WithHelp("2", "messages")),
 		JumpInput: key.NewBinding(key.WithKeys("3"), key.WithHelp("3", "compose")),
@@ -126,7 +128,7 @@ func (k keyMap) sections() [][]keySection {
 			{"Global", []key.Binding{k.JumpChats, k.JumpChat, k.JumpInput, k.NextPane, k.PrevPane, k.PaneLeft, k.PaneRight, k.Back, k.Compose, k.Attach, k.People, k.Filter, k.Help, k.Quit}},
 		},
 		{
-			{"Chats", []key.Binding{k.Up, k.Down, k.OpenChat}},
+			{"Chats", []key.Binding{k.Up, k.Down, k.OpenChat, k.Mute}},
 			{"Compose", []key.Binding{k.Send, k.Newline, k.Editor, k.Back}},
 		},
 		{

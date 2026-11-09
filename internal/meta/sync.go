@@ -56,6 +56,9 @@ func ApplyTable(ctx context.Context, s *store.Store, tbl *table.LSTable) error {
 	if err := applyReceipts(ctx, s, tbl); err != nil {
 		return err
 	}
+	if err := applyMuteSettings(ctx, s, tbl); err != nil {
+		return err
+	}
 	return applyReadMarks(ctx, s, tbl)
 }
 
@@ -181,15 +184,18 @@ func upsertThread(ctx context.Context, s *store.Store, thread table.ThreadInfo) 
 	var updatedAt time.Time
 	var preview string
 	var threadType int64
+	var muteUntil *int64
 	switch t := thread.(type) {
 	case *table.LSDeleteThenInsertThread:
 		updatedAt = time.UnixMilli(t.LastActivityTimestampMs)
 		preview = t.Snippet
 		threadType = int64(t.ThreadType)
+		muteUntil = &t.MuteExpireTimeMs
 	case *table.LSUpdateOrInsertThread:
 		updatedAt = time.UnixMilli(t.LastActivityTimestampMs)
 		preview = t.Snippet
 		threadType = int64(t.ThreadType)
+		muteUntil = &t.MuteExpireTimeMs
 	default:
 		threadType = int64(thread.GetThreadType())
 	}
@@ -202,7 +208,25 @@ func upsertThread(ctx context.Context, s *store.Store, thread table.ThreadInfo) 
 	}); err != nil {
 		return err
 	}
+	if muteUntil != nil {
+		if err := s.SetMute(ctx, key, *muteUntil); err != nil {
+			return err
+		}
+	}
 	return s.SetLastRead(ctx, key, time.UnixMilli(thread.GetLastReadWatermarkTimestampMs()))
+}
+
+func applyMuteSettings(ctx context.Context, s *store.Store, tbl *table.LSTable) error {
+	for _, setting := range tbl.LSUpdateThreadMuteSetting {
+		key, err := resolveThreadKey(ctx, s, setting.ThreadKey)
+		if err != nil {
+			return err
+		}
+		if err := s.SetMute(ctx, key, setting.MuteExpireTimeMS); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func applyReadMarks(ctx context.Context, s *store.Store, tbl *table.LSTable) error {

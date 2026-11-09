@@ -20,10 +20,15 @@ type Thread struct {
 	ThreadType  int64
 	UpdatedAt   time.Time
 	LastRead    time.Time
+	MuteUntilMs int64
 }
 
 func (t Thread) Unread() bool {
 	return t.UpdatedAt.UnixMilli() > t.LastRead.UnixMilli()
+}
+
+func (t Thread) Muted(now time.Time) bool {
+	return t.MuteUntilMs == -1 || t.MuteUntilMs > now.UnixMilli()
 }
 
 type Message struct {
@@ -134,6 +139,7 @@ CREATE INDEX IF NOT EXISTS messages_thread_ts ON messages(thread_id, timestamp_m
 	for _, stmt := range []string{
 		`ALTER TABLE threads ADD COLUMN thread_type INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE threads ADD COLUMN last_read_ms INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE threads ADD COLUMN mute_until_ms INTEGER NOT NULL DEFAULT 0`,
 	} {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
 			if !isDuplicateColumn(err) {
@@ -307,7 +313,7 @@ func (s *Store) ListThreads(ctx context.Context) ([]Thread, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT t.id,
 	CASE WHEN t.title != '' THEN t.title ELSE COALESCE(c.name, '') END,
-	t.last_preview, t.thread_type, t.updated_at_ms, t.last_read_ms
+	t.last_preview, t.thread_type, t.updated_at_ms, t.last_read_ms, t.mute_until_ms
 FROM threads t
 LEFT JOIN contacts c ON c.id = t.id
 ORDER BY t.updated_at_ms DESC, t.id DESC
@@ -320,7 +326,7 @@ ORDER BY t.updated_at_ms DESC, t.id DESC
 	for rows.Next() {
 		var t Thread
 		var ms, readMS int64
-		if err := rows.Scan(&t.ID, &t.Title, &t.LastPreview, &t.ThreadType, &ms, &readMS); err != nil {
+		if err := rows.Scan(&t.ID, &t.Title, &t.LastPreview, &t.ThreadType, &ms, &readMS, &t.MuteUntilMs); err != nil {
 			return nil, fmt.Errorf("scan thread: %w", err)
 		}
 		t.UpdatedAt = time.UnixMilli(ms)
@@ -336,11 +342,11 @@ func (s *Store) GetThread(ctx context.Context, id int64) (Thread, error) {
 	err := s.db.QueryRowContext(ctx, `
 SELECT t.id,
 	CASE WHEN t.title != '' THEN t.title ELSE COALESCE(c.name, '') END,
-	t.last_preview, t.thread_type, t.updated_at_ms, t.last_read_ms
+	t.last_preview, t.thread_type, t.updated_at_ms, t.last_read_ms, t.mute_until_ms
 FROM threads t
 LEFT JOIN contacts c ON c.id = t.id
 WHERE t.id = ?
-`, id).Scan(&t.ID, &t.Title, &t.LastPreview, &t.ThreadType, &ms, &readMS)
+`, id).Scan(&t.ID, &t.Title, &t.LastPreview, &t.ThreadType, &ms, &readMS, &t.MuteUntilMs)
 	if err != nil {
 		return Thread{}, fmt.Errorf("get thread: %w", err)
 	}
@@ -500,6 +506,14 @@ func (s *Store) ThreadCount(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("count threads: %w", err)
 	}
 	return n, nil
+}
+
+func (s *Store) SetMute(ctx context.Context, threadID, untilMs int64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE threads SET mute_until_ms = ? WHERE id = ?`, untilMs, threadID)
+	if err != nil {
+		return fmt.Errorf("set mute: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) SetLastRead(ctx context.Context, threadID int64, at time.Time) error {

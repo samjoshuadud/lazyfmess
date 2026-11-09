@@ -140,6 +140,15 @@ func (e editAdapter) Unsend(ctx context.Context, thread store.Thread, msg store.
 	return e.client.Unsend(ctx, e.store, thread, msg)
 }
 
+type muteAdapter struct {
+	client *meta.Client
+	store  *store.Store
+}
+
+func (m muteAdapter) SetMuted(ctx context.Context, thread store.Thread, muted bool) error {
+	return m.client.SetMuted(ctx, m.store, thread, muted)
+}
+
 type searchAdapter struct {
 	client *meta.Client
 	store  *store.Store
@@ -261,6 +270,7 @@ func run() error {
 			Typing:   typingAdapter{client: client},
 			Reactor:  reactAdapter{client: client, store: db},
 			Editor:   editAdapter{client: client, store: db},
+			Muter:    muteAdapter{client: client, store: db},
 		},
 		ui.Config{
 			PrefillPIN: *pinFlag,

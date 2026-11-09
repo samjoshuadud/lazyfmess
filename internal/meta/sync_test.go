@@ -290,3 +290,35 @@ func TestReadReceiptsFromTableAndLiveEvent(t *testing.T) {
 		t.Fatalf("marks: %v", marks)
 	}
 }
+
+func TestApplyTableMuteState(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	now := time.UnixMilli(1_700_000_000_000)
+	steps := []struct {
+		name  string
+		tbl   *table.LSTable
+		muted bool
+	}{
+		{"thread row muted forever", &table.LSTable{LSDeleteThenInsertThread: []*table.LSDeleteThenInsertThread{{ThreadKey: 3, ThreadName: "x", MuteExpireTimeMs: -1}}}, true},
+		{"unmuted elsewhere", &table.LSTable{LSUpdateThreadMuteSetting: []*table.LSUpdateThreadMuteSetting{{ThreadKey: 3, MuteExpireTimeMS: 0}}}, false},
+		{"muted for an hour", &table.LSTable{LSUpdateThreadMuteSetting: []*table.LSUpdateThreadMuteSetting{{ThreadKey: 3, MuteExpireTimeMS: now.Add(time.Hour).UnixMilli()}}}, true},
+	}
+	for _, step := range steps {
+		if err := ApplyTable(ctx, s, step.tbl); err != nil {
+			t.Fatalf("%s: %v", step.name, err)
+		}
+		thread, err := s.GetThread(ctx, 3)
+		if err != nil {
+			t.Fatalf("%s: GetThread: %v", step.name, err)
+		}
+		if thread.Muted(now) != step.muted {
+			t.Fatalf("%s: muted = %v (%d)", step.name, thread.Muted(now), thread.MuteUntilMs)
+		}
+	}
+}
