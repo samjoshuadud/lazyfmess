@@ -21,6 +21,7 @@ type keyMap struct {
 	Compose   key.Binding
 	People    key.Binding
 	Filter    key.Binding
+	Attach    key.Binding
 	JumpChats key.Binding
 	JumpChat  key.Binding
 	JumpInput key.Binding
@@ -73,6 +74,7 @@ func newKeyMap() keyMap {
 		Compose:   key.NewBinding(key.WithKeys("i", "a", "c"), key.WithHelp("i", "compose")),
 		People:    key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "people")),
 		Filter:    key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
+		Attach:    key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "attach file")),
 		JumpChats: key.NewBinding(key.WithKeys("1"), key.WithHelp("1", "chats")),
 		JumpChat:  key.NewBinding(key.WithKeys("2"), key.WithHelp("2", "messages")),
 		JumpInput: key.NewBinding(key.WithKeys("3"), key.WithHelp("3", "compose")),
@@ -121,7 +123,7 @@ type keySection struct {
 func (k keyMap) sections() [][]keySection {
 	return [][]keySection{
 		{
-			{"Global", []key.Binding{k.JumpChats, k.JumpChat, k.JumpInput, k.NextPane, k.PrevPane, k.PaneLeft, k.PaneRight, k.Back, k.Compose, k.People, k.Filter, k.Help, k.Quit}},
+			{"Global", []key.Binding{k.JumpChats, k.JumpChat, k.JumpInput, k.NextPane, k.PrevPane, k.PaneLeft, k.PaneRight, k.Back, k.Compose, k.Attach, k.People, k.Filter, k.Help, k.Quit}},
 		},
 		{
 			{"Chats", []key.Binding{k.Up, k.Down, k.OpenChat}},
@@ -141,6 +143,8 @@ func (m Model) contextBindings() []key.Binding {
 			return []key.Binding{k.Dismiss}
 		case popupConfirm:
 			return []key.Binding{k.Confirm, k.Cancel}
+		case popupPrompt:
+			return []key.Binding{k.Select, k.Skip}
 		default:
 			return []key.Binding{k.Select, k.Down, k.Up, k.Cancel}
 		}

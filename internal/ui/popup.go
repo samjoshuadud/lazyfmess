@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -15,6 +16,7 @@ const (
 	popupError popupKind = iota
 	popupConfirm
 	popupMenu
+	popupPrompt
 )
 
 type menuItem struct {
@@ -29,6 +31,8 @@ type popup struct {
 	items     []menuItem
 	index     int
 	onConfirm func(*Model) tea.Cmd
+	input     textinput.Model
+	onSubmit  func(*Model, string) tea.Cmd
 }
 
 type errorMsg struct {
@@ -47,9 +51,27 @@ func (m *Model) showMenu(title string, items []menuItem) {
 	m.popup = &popup{kind: popupMenu, title: title, items: items}
 }
 
+func (m *Model) showPrompt(title, placeholder string, onSubmit func(*Model, string) tea.Cmd) tea.Cmd {
+	input := textinput.New()
+	input.Placeholder = placeholder
+	input.Prompt = "> "
+	input.PromptStyle = lipgloss.NewStyle().Foreground(accent).Bold(true)
+	input.TextStyle = lipgloss.NewStyle().Foreground(text)
+	input.PlaceholderStyle = lipgloss.NewStyle().Foreground(muted)
+	input.Width = min(56, m.width-12)
+	input.Focus()
+	m.popup = &popup{kind: popupPrompt, title: title, input: input, onSubmit: onSubmit}
+	return textinput.Blink
+}
+
 func (m Model) updatePopup(msg tea.Msg) (Model, tea.Cmd) {
 	k, ok := msg.(tea.KeyMsg)
 	if !ok {
+		if m.popup.kind == popupPrompt {
+			var cmd tea.Cmd
+			m.popup.input, cmd = m.popup.input.Update(msg)
+			return m, cmd
+		}
 		return m, nil
 	}
 	keys := m.keys
@@ -70,6 +92,18 @@ func (m Model) updatePopup(msg tea.Msg) (Model, tea.Cmd) {
 		case key.Matches(k, keys.Cancel):
 			m.popup = nil
 		}
+	case popupPrompt:
+		switch {
+		case key.Matches(k, keys.Select):
+			m.popup = nil
+			return m, p.onSubmit(&m, strings.TrimSpace(p.input.Value()))
+		case key.Matches(k, keys.Skip):
+			m.popup = nil
+			return m, nil
+		}
+		var cmd tea.Cmd
+		p.input, cmd = p.input.Update(k)
+		return m, cmd
 	case popupMenu:
 		switch {
 		case key.Matches(k, keys.Up):
@@ -95,6 +129,8 @@ func (m Model) renderPopup() string {
 	}
 	var body string
 	switch p.kind {
+	case popupPrompt:
+		body = p.input.View()
 	case popupMenu:
 		rows := make([]string, len(p.items))
 		for i, item := range p.items {

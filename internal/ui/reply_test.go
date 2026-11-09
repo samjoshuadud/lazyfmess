@@ -26,6 +26,10 @@ func (r *replySender) SendText(_ context.Context, _ store.Thread, _ string, repl
 	return SendResult{MessageID: "sent-reply", Timestamp: time.UnixMilli(1_700_000_900_000)}, nil
 }
 
+func (r *replySender) SendFile(context.Context, store.Thread, string) (SendResult, error) {
+	return SendResult{}, nil
+}
+
 func TestReplyFlow(t *testing.T) {
 	t.Parallel()
 	m := newTestModel(t, 1, 3)

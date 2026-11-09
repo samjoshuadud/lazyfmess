@@ -3,6 +3,8 @@ package ui
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -33,6 +35,7 @@ type SendResult struct {
 
 type Sender interface {
 	SendText(ctx context.Context, thread store.Thread, text string, replyTo store.Message) (SendResult, error)
+	SendFile(ctx context.Context, thread store.Thread, path string) (SendResult, error)
 	AccountID() int64
 }
 
@@ -471,6 +474,10 @@ func (m Model) updateMain(msg tea.Msg) (Model, tea.Cmd) {
 	case key.Matches(k, keys.Compose) && m.selectedID != 0:
 		m.setFocus(focusComposer)
 		return m, nil
+	case key.Matches(k, keys.Attach) && m.selectedID != 0:
+		return m, m.showPrompt("Send a file", "path to an image, video, or file", func(m *Model, path string) tea.Cmd {
+			return m.queueFile(path)
+		})
 	case key.Matches(k, keys.People):
 		m.openSearchModal()
 		return m, textinput.Blink
@@ -691,15 +698,65 @@ func (m *Model) queueSend() tea.Cmd {
 	m.composer.Reset()
 	m.replyTo = store.Message{}
 	m.status = "sending"
-	send := func() tea.Msg {
-		return sendFinishedMsg{threadID: thread.ID, err: m.sendPending(thread, pending)}
-	}
-	return tea.Batch(m.loadMessages(thread.ID), m.track(send))
+	replyTo := store.Message{ID: pending.ReplyToID, SenderID: pending.ReplySenderID}
+	return m.startSend(thread, pending, func() (SendResult, error) {
+		return m.sender.SendText(m.ctx, thread, pending.Text, replyTo)
+	})
 }
 
-func (m Model) sendPending(thread store.Thread, pending store.Message) error {
-	replyTo := store.Message{ID: pending.ReplyToID, SenderID: pending.ReplySenderID}
-	result, err := m.sender.SendText(m.ctx, thread, pending.Text, replyTo)
+func (m *Model) queueFile(path string) tea.Cmd {
+	if path == "" || m.sender == nil || m.selectedID == 0 {
+		return nil
+	}
+	path, err := expandHome(path)
+	if err != nil {
+		m.showError(err.Error())
+		return nil
+	}
+	thread, err := m.store.GetThread(m.ctx, m.selectedID)
+	if err != nil {
+		m.showError(fmt.Sprintf("send: %v", err))
+		return nil
+	}
+	pending := store.Message{
+		ID:        fmt.Sprintf("pending-%d", time.Now().UnixNano()),
+		ThreadID:  thread.ID,
+		SenderID:  m.sender.AccountID(),
+		Timestamp: time.Now(),
+		Pending:   true,
+		MediaKind: "file",
+		MediaName: filepath.Base(path),
+	}
+	if err := m.store.UpsertMessage(m.ctx, pending); err != nil {
+		m.showError(fmt.Sprintf("send: %v", err))
+		return nil
+	}
+	m.status = "uploading " + pending.MediaName
+	return m.startSend(thread, pending, func() (SendResult, error) {
+		return m.sender.SendFile(m.ctx, thread, path)
+	})
+}
+
+func (m *Model) startSend(thread store.Thread, pending store.Message, send func() (SendResult, error)) tea.Cmd {
+	done := func() tea.Msg {
+		return sendFinishedMsg{threadID: thread.ID, err: m.finishSend(thread, pending, send)}
+	}
+	return tea.Batch(m.loadMessages(thread.ID), m.track(done))
+}
+
+func expandHome(path string) (string, error) {
+	if path != "~" && !strings.HasPrefix(path, "~/") {
+		return path, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("expand home directory: %w", err)
+	}
+	return filepath.Join(home, strings.TrimPrefix(path, "~")), nil
+}
+
+func (m Model) finishSend(thread store.Thread, pending store.Message, send func() (SendResult, error)) error {
+	result, err := send()
 	if err != nil {
 		pending.Pending = false
 		pending.Error = err.Error()
@@ -717,6 +774,9 @@ func (m Model) sendPending(thread store.Thread, pending store.Message) error {
 		return fmt.Errorf("save sent message: %w", err)
 	}
 	thread.LastPreview = pending.Text
+	if pending.Text == "" {
+		thread.LastPreview = "You sent " + pending.MediaName
+	}
 	thread.UpdatedAt = result.Timestamp
 	if err := m.store.UpsertThread(m.ctx, thread); err != nil {
 		return fmt.Errorf("update thread: %w", err)

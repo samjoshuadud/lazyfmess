@@ -23,6 +23,10 @@ func (s stubSender) SendText(context.Context, store.Thread, string, store.Messag
 	return SendResult{MessageID: "sent-1", Timestamp: time.UnixMilli(1_700_000_000_500)}, nil
 }
 
+func (s stubSender) SendFile(context.Context, store.Thread, string) (SendResult, error) {
+	return SendResult{MessageID: "sent-file", Timestamp: time.UnixMilli(1_700_000_000_600)}, nil
+}
+
 func TestModelLoadsThreadsAndMessages(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

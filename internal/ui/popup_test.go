@@ -73,6 +73,10 @@ func (failingSender) SendText(context.Context, store.Thread, string, store.Messa
 	return SendResult{}, errors.New("network down")
 }
 
+func (failingSender) SendFile(context.Context, store.Thread, string) (SendResult, error) {
+	return SendResult{}, errors.New("network down")
+}
+
 func TestSendFailureOpensErrorPopup(t *testing.T) {
 	t.Parallel()
 	m := newTestModel(t, 1, 0)

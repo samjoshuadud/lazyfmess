@@ -189,8 +189,11 @@ func messageBody(msg store.Message) string {
 
 func mediaPlaceholder(msg store.Message) string {
 	label := "[" + msg.MediaKind + "]"
-	if msg.MediaKind == "video" && msg.MediaDurationMs > 0 {
+	switch {
+	case msg.MediaKind == "video" && msg.MediaDurationMs > 0:
 		label = fmt.Sprintf("[video %s]", formatMediaDuration(msg.MediaDurationMs))
+	case msg.MediaKind != "image" && msg.MediaKind != "video" && msg.MediaName != "":
+		label = "[" + msg.MediaKind + " " + msg.MediaName + "]"
 	}
 	return label
 }

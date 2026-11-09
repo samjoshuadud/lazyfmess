@@ -36,18 +36,10 @@ func (c *Client) SendText(ctx context.Context, thread store.Thread, text string,
 }
 
 func (c *Client) sendLightspeedText(ctx context.Context, threadID int64, text string, replyTo store.Message) (SendResult, error) {
-	if err := c.mx.WaitUntilCanSendMessages(ctx, 15*time.Second); err != nil {
-		return SendResult{}, fmt.Errorf("wait to send: %w", err)
-	}
-	otid := methods.GenerateEpochID()
 	task := &socket.SendMessageTask{
-		ThreadId:         threadID,
-		Otid:             otid,
-		Source:           table.MESSENGER_INBOX_IN_THREAD,
-		InitiatingSource: table.FACEBOOK_INBOX,
-		SendType:         table.TEXT,
-		Text:             text,
-		SyncGroup:        1,
+		ThreadId: threadID,
+		SendType: table.TEXT,
+		Text:     text,
 	}
 	if replyTo.ID != "" {
 		task.ReplyMetaData = &socket.ReplyMetaData{
@@ -56,6 +48,18 @@ func (c *Client) sendLightspeedText(ctx context.Context, threadID int64, text st
 			ReplySender:     replyTo.SenderID,
 		}
 	}
+	return c.sendLightspeed(ctx, task)
+}
+
+func (c *Client) sendLightspeed(ctx context.Context, task *socket.SendMessageTask) (SendResult, error) {
+	if err := c.mx.WaitUntilCanSendMessages(ctx, 15*time.Second); err != nil {
+		return SendResult{}, fmt.Errorf("wait to send: %w", err)
+	}
+	otid := methods.GenerateEpochID()
+	task.Otid = otid
+	task.Source = table.MESSENGER_INBOX_IN_THREAD
+	task.InitiatingSource = table.FACEBOOK_INBOX
+	task.SyncGroup = 1
 	resp, err := c.mx.ExecuteTasks(ctx, task)
 	if err != nil {
 		return SendResult{}, fmt.Errorf("execute send task: %w", err)

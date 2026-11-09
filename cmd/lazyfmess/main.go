@@ -64,6 +64,14 @@ func (s senderAdapter) SendText(ctx context.Context, thread store.Thread, text s
 	return ui.SendResult{MessageID: result.MessageID, Timestamp: result.Timestamp}, nil
 }
 
+func (s senderAdapter) SendFile(ctx context.Context, thread store.Thread, path string) (ui.SendResult, error) {
+	result, err := s.client.SendFile(ctx, thread, path)
+	if err != nil {
+		return ui.SendResult{}, err
+	}
+	return ui.SendResult{MessageID: result.MessageID, Timestamp: result.Timestamp}, nil
+}
+
 type historyAdapter struct {
 	client *meta.Client
 	store  *store.Store
