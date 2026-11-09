@@ -73,6 +73,13 @@ Or:
 go run ./cmd/lazyfmess -data-dir "$HOME/.config/lazyfmess"
 ```
 
+`go run` compiles the program before every launch. For faster startup, build once and run the binary:
+
+```bash
+go build -o lazyfmess ./cmd/lazyfmess
+./lazyfmess
+```
+
 Unlock encrypted history with a PIN:
 
 ```bash
