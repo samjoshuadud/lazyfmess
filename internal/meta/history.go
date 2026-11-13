@@ -2,6 +2,7 @@ package meta
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -20,12 +21,19 @@ const (
 )
 
 func (c *Client) loadHistoryDevice() error {
-	device, err := session.LoadHistoryDevice(c.dataDir)
-	if err != nil {
+	data, err := session.LoadHistoryDevice(c.dataDir)
+	if err != nil || data == nil {
 		return err
 	}
+	var device securehistory.Device
+	if err := json.Unmarshal(data, &device); err != nil {
+		return fmt.Errorf("parse history device: %w", err)
+	}
+	if device.ID == "" || device.BackupID == "" {
+		return nil
+	}
 	c.historyMu.Lock()
-	c.historyDevice = device
+	c.historyDevice = &device
 	c.historyMu.Unlock()
 	return nil
 }
@@ -97,17 +105,18 @@ func (c *Client) UnlockHistory(ctx context.Context, pin string) error {
 	if err != nil {
 		return fmt.Errorf("add history device: %w", err)
 	}
-	if err := session.SaveHistoryDevice(c.dataDir, device); err != nil {
-		return err
-	}
-	c.historyMu.Lock()
-	c.historyDevice = device
-	c.historyMu.Unlock()
-	return nil
+	return c.saveHistoryDevice(device)
 }
 
 func (c *Client) saveHistoryDevice(device *securehistory.Device) error {
-	if err := session.SaveHistoryDevice(c.dataDir, device); err != nil {
+	if device == nil || device.ID == "" {
+		return nil
+	}
+	data, err := json.Marshal(device)
+	if err != nil {
+		return fmt.Errorf("marshal history device: %w", err)
+	}
+	if err := session.SaveHistoryDevice(c.dataDir, data); err != nil {
 		return err
 	}
 	c.historyMu.Lock()
