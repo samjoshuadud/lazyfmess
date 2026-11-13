@@ -2,7 +2,7 @@
 
 Unofficial terminal client for Facebook Messenger.
 
-![lazyfmess demo: browsing chats, sending a message, reacting, and the key help](docs/demo.gif)
+![lazyfmess demo: jumping to an unread chat, searching it, sending a message, reacting, and the key help](docs/demo.gif)
 
 The recording uses made-up chats and names.
 
