@@ -18,6 +18,7 @@ type threadsLoadedMsg struct {
 }
 
 type messagesLoadedMsg struct {
+	seq       int64
 	threadID  int64
 	messages  []store.Message
 	readMarks []time.Time

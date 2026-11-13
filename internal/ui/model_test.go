@@ -339,3 +339,56 @@ func TestHintsFollowFocus(t *testing.T) {
 		}
 	}
 }
+
+func TestStaleLoadsAreDropped(t *testing.T) {
+	t.Parallel()
+	m := newTestModel(t, 1, 3)
+	older := m.loadMessages(1)()
+	newer := m.loadMessages(1)()
+	model, _ := m.Update(newer)
+	m = model.(Model)
+	model, _ = m.Update(messagesLoadedMsg{threadID: 1, seq: older.(messagesLoadedMsg).seq})
+	m = model.(Model)
+	if len(m.messages) != 3 {
+		t.Fatalf("an older load replaced newer results: %d messages", len(m.messages))
+	}
+}
+
+func TestResizeRendersAfterTheLastSize(t *testing.T) {
+	t.Parallel()
+	m := newTestModel(t, 1, 3)
+	model, first := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = model.(Model)
+	model, last := m.Update(tea.WindowSizeMsg{Width: 90, Height: 30})
+	m = model.(Model)
+	if first == nil || last == nil {
+		t.Fatal("resize should schedule a render")
+	}
+	model, _ = m.Update(first())
+	m = model.(Model)
+	if m.resizeGen != 3 {
+		t.Fatalf("resize generation: %d", m.resizeGen)
+	}
+	if w := m.viewport.Width; w != m.rightWidth-2 {
+		t.Fatalf("viewport width %d does not follow the latest size", w)
+	}
+}
+
+func TestAppQueuesWithoutBlocking(t *testing.T) {
+	t.Parallel()
+	a := &App{program: new(tea.Program), queue: make(chan tea.Msg, 2), done: make(chan struct{})}
+	for range 5 {
+		a.Notify()
+	}
+	if len(a.queue) != 1 {
+		t.Fatalf("notifications should collapse into one refresh, queued %d", len(a.queue))
+	}
+	for range 10 {
+		a.Typing(1, 2, true)
+	}
+	if len(a.queue) != 2 {
+		t.Fatalf("queue length %d", len(a.queue))
+	}
+	close(a.done)
+	a.Error("boom")
+}

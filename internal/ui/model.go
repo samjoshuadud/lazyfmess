@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -147,6 +148,9 @@ type Model struct {
 	messages       []store.Message
 	readMarks      []time.Time
 	messageLimit   int
+	loads          *atomic.Int64
+	lastLoad       int64
+	resizeGen      int
 	moreAbove      bool
 	anchorID       string
 	anchorOffset   int
@@ -169,6 +173,10 @@ type refreshNowMsg struct{}
 type unlockCheckMsg struct {
 	needs bool
 	err   error
+}
+
+type resizeDoneMsg struct {
+	gen int
 }
 
 type syncProgressMsg struct {
@@ -218,6 +226,7 @@ func New(ctx context.Context, s *store.Store, svc Services, cfg Config) Model {
 		backgroundSync: cfg.BackgroundSync,
 		historyLoading: make(map[int64]bool),
 		blocks:         make(map[string]string),
+		loads:          new(atomic.Int64),
 		prefillPIN:     strings.TrimSpace(cfg.PrefillPIN),
 		ctx:            ctx,
 		keys:           newKeyMap(),
@@ -308,8 +317,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.layout()
-		m.ready = true
-		m.refreshViewport()
+		m.resizeGen++
+		if !m.ready {
+			m.ready = true
+			m.refreshViewport()
+			return m, nil
+		}
+		gen := m.resizeGen
+		return m, tea.Tick(resizeDelay, func(time.Time) tea.Msg { return resizeDoneMsg{gen: gen} })
+	case resizeDoneMsg:
+		if msg.gen == m.resizeGen {
+			m.refreshViewport()
+		}
 		return m, nil
 	case needLoginMsg:
 		m.openLogin(msg.reason)
@@ -442,9 +461,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showError(msg.err.Error())
 			return m, nil
 		}
-		if msg.threadID != m.selectedID {
+		if msg.threadID != m.selectedID || msg.seq < m.lastLoad {
 			return m, nil
 		}
+		m.lastLoad = msg.seq
 		newThread := msg.threadID != m.loadedID
 		if newThread {
 			m.messageLimit = messagePage
@@ -805,7 +825,10 @@ func (m Model) loadThreads() tea.Msg {
 	return threadsLoadedMsg{threads: threads, err: err}
 }
 
-const messagePage = 300
+const (
+	messagePage = 300
+	resizeDelay = 50 * time.Millisecond
+)
 
 func (m *Model) loadOlderAtTop() tea.Cmd {
 	if !m.moreAbove || m.anchorID != "" || len(m.order) == 0 || m.cursorID != m.order[0] {
@@ -824,13 +847,17 @@ func (m Model) loadMessages(threadID int64) tea.Cmd {
 	if threadID != m.loadedID || limit == 0 {
 		limit = messagePage
 	}
+	var seq int64
+	if m.loads != nil {
+		seq = m.loads.Add(1)
+	}
 	return func() tea.Msg {
 		msgs, err := m.store.ListRecentMessages(m.ctx, threadID, limit)
 		if err != nil {
-			return messagesLoadedMsg{threadID: threadID, err: err}
+			return messagesLoadedMsg{threadID: threadID, err: err, seq: seq}
 		}
 		marks, err := m.store.ReadMarks(m.ctx, threadID, m.selfAccountID())
-		return messagesLoadedMsg{threadID: threadID, messages: msgs, readMarks: marks, err: err}
+		return messagesLoadedMsg{threadID: threadID, messages: msgs, readMarks: marks, err: err, seq: seq}
 	}
 }
 
@@ -862,10 +889,9 @@ func (m *Model) queueSend() tea.Cmd {
 	if text == "" || m.sender == nil || m.selectedID == 0 {
 		return nil
 	}
-	thread, err := m.store.GetThread(m.ctx, m.selectedID)
-	if err != nil {
-		m.showError(fmt.Sprintf("send: %v", err))
-		return nil
+	thread, ok := m.currentThread()
+	if !ok {
+		thread = store.Thread{ID: m.selectedID}
 	}
 	pending := store.Message{
 		ID:            fmt.Sprintf("pending-%d", time.Now().UnixNano()),
@@ -877,10 +903,6 @@ func (m *Model) queueSend() tea.Cmd {
 		ReplyToID:     m.replyTo.ID,
 		ReplyText:     m.replyTo.Text,
 		ReplySenderID: m.replyTo.SenderID,
-	}
-	if err := m.store.UpsertMessage(m.ctx, pending); err != nil {
-		m.showError(fmt.Sprintf("send: %v", err))
-		return nil
 	}
 	m.composer.Reset()
 	m.replyTo = store.Message{}
@@ -900,10 +922,9 @@ func (m *Model) queueFile(path string) tea.Cmd {
 		m.showError(err.Error())
 		return nil
 	}
-	thread, err := m.store.GetThread(m.ctx, m.selectedID)
-	if err != nil {
-		m.showError(fmt.Sprintf("send: %v", err))
-		return nil
+	thread, ok := m.currentThread()
+	if !ok {
+		thread = store.Thread{ID: m.selectedID}
 	}
 	pending := store.Message{
 		ID:        fmt.Sprintf("pending-%d", time.Now().UnixNano()),
@@ -914,10 +935,6 @@ func (m *Model) queueFile(path string) tea.Cmd {
 		MediaKind: "file",
 		MediaName: filepath.Base(path),
 	}
-	if err := m.store.UpsertMessage(m.ctx, pending); err != nil {
-		m.showError(fmt.Sprintf("send: %v", err))
-		return nil
-	}
 	m.status = "uploading " + pending.MediaName
 	return m.startSend(thread, pending, func() (SendResult, error) {
 		return m.sender.SendFile(m.ctx, thread, path)
@@ -925,10 +942,22 @@ func (m *Model) queueFile(path string) tea.Cmd {
 }
 
 func (m *Model) startSend(thread store.Thread, pending store.Message, send func() (SendResult, error)) tea.Cmd {
-	done := func() tea.Msg {
+	m.messages = append(m.messages, pending)
+	m.order = messageOrder(m.messages)
+	m.cursorID = pending.ID
+	m.refreshViewport()
+	m.viewport.GotoBottom()
+	return m.track(func() tea.Msg {
+		if thread.ThreadType == 0 {
+			if stored, err := m.store.GetThread(m.ctx, thread.ID); err == nil {
+				thread = stored
+			}
+		}
+		if err := m.store.UpsertMessage(m.ctx, pending); err != nil {
+			return sendFinishedMsg{threadID: thread.ID, err: fmt.Errorf("send: %w", err)}
+		}
 		return sendFinishedMsg{threadID: thread.ID, err: m.finishSend(thread, pending, send)}
-	}
-	return tea.Batch(m.loadMessages(thread.ID), m.track(done))
+	})
 }
 
 func expandHome(path string) (string, error) {
@@ -1015,63 +1044,91 @@ func threadTitle(t store.Thread) string {
 
 type App struct {
 	program *tea.Program
+	queue   chan tea.Msg
+	done    chan struct{}
+	dirty   atomic.Bool
 }
 
 func NewApp(ctx context.Context, s *store.Store, svc Services, cfg Config) *App {
 	p := tea.NewProgram(New(ctx, s, svc, cfg), tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithContext(ctx))
-	return &App{program: p}
+	a := &App{program: p, queue: make(chan tea.Msg, 256), done: make(chan struct{})}
+	go a.forward()
+	return a
+}
+
+func (a *App) forward() {
+	for {
+		select {
+		case msg := <-a.queue:
+			if _, ok := msg.(RefreshMsg); ok {
+				a.dirty.Store(false)
+			}
+			a.program.Send(msg)
+		case <-a.done:
+			return
+		}
+	}
+}
+
+func (a *App) send(msg tea.Msg, droppable bool) bool {
+	if a == nil || a.program == nil {
+		return false
+	}
+	if droppable {
+		select {
+		case a.queue <- msg:
+			return true
+		default:
+			return false
+		}
+	}
+	select {
+	case a.queue <- msg:
+		return true
+	case <-a.done:
+		return false
+	}
 }
 
 func (a *App) Notify() {
-	if a == nil || a.program == nil {
+	if a == nil || a.dirty.Swap(true) {
 		return
 	}
-	a.program.Send(RefreshMsg{})
+	if !a.send(RefreshMsg{}, true) {
+		a.dirty.Store(false)
+	}
 }
 
 func (a *App) Toast(message string) {
-	if a == nil || a.program == nil || strings.TrimSpace(message) == "" {
-		return
+	if strings.TrimSpace(message) != "" {
+		a.send(toastMsg{message: message}, true)
 	}
-	a.program.Send(toastMsg{message: message})
 }
 
 func (a *App) NeedLogin(reason string) {
-	if a == nil || a.program == nil {
-		return
-	}
-	a.program.Send(needLoginMsg{reason: reason})
+	a.send(needLoginMsg{reason: reason}, false)
 }
 
 func (a *App) SyncProgress(done, total int) {
-	if a == nil || a.program == nil {
-		return
-	}
-	a.program.Send(syncProgressMsg{done: done, total: total})
+	a.send(syncProgressMsg{done: done, total: total}, true)
 }
 
 func (a *App) Connected(err error) {
-	if a == nil || a.program == nil {
-		return
-	}
-	a.program.Send(connectedMsg{err: err})
+	a.send(connectedMsg{err: err}, false)
 }
 
 func (a *App) Typing(threadID, senderID int64, active bool) {
-	if a == nil || a.program == nil {
-		return
-	}
-	a.program.Send(typingMsg{threadID: threadID, senderID: senderID, active: active})
+	a.send(typingMsg{threadID: threadID, senderID: senderID, active: active}, true)
 }
 
 func (a *App) Error(message string) {
-	if a == nil || a.program == nil || strings.TrimSpace(message) == "" {
-		return
+	if strings.TrimSpace(message) != "" {
+		a.send(errorMsg{text: message}, false)
 	}
-	a.program.Send(errorMsg{text: message})
 }
 
 func (a *App) Run() error {
+	defer close(a.done)
 	_, err := a.program.Run()
 	if err != nil {
 		return fmt.Errorf("run tui: %w", err)
