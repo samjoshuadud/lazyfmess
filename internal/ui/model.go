@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -117,6 +118,8 @@ type Model struct {
 	connecting     bool
 	refreshQueued  bool
 	popup          *popup
+	popupStack     []*popup
+	toastQueue     []string
 	composer       textarea.Model
 	pinInput       textinput.Model
 	searchInput    textinput.Model
@@ -272,6 +275,13 @@ func (m Model) boot() tea.Msg {
 		return bootMsg{err: err}
 	}
 	return bootMsg{askPIN: needs}
+}
+
+func (m *Model) showToast(message string) tea.Cmd {
+	m.toast = message
+	return tea.Tick(toastDuration, func(time.Time) tea.Msg {
+		return toastExpiredMsg{message: message}
+	})
 }
 
 func (m *Model) kickHistorySync() tea.Cmd {
@@ -431,15 +441,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshQueued = false
 		return m, m.reload()
 	case toastExpiredMsg:
-		if msg.message == m.toast {
-			m.toast = ""
+		if msg.message != m.toast {
+			return m, nil
+		}
+		m.toast = ""
+		if len(m.toastQueue) == 0 {
+			return m, nil
+		}
+		next := m.toastQueue[0]
+		m.toastQueue = m.toastQueue[1:]
+		return m, m.showToast(next)
+	case toastMsg:
+		if m.toast == "" {
+			return m, m.showToast(msg.message)
+		}
+		if msg.message != m.toast && !slices.Contains(m.toastQueue, msg.message) && len(m.toastQueue) < 5 {
+			m.toastQueue = append(m.toastQueue, msg.message)
 		}
 		return m, nil
-	case toastMsg:
-		m.toast = msg.message
-		return m, tea.Tick(4*time.Second, func(time.Time) tea.Msg {
-			return toastExpiredMsg{message: msg.message}
-		})
 	case threadsLoadedMsg:
 		m.threadsLoaded = true
 		if msg.err != nil {
@@ -838,8 +857,9 @@ func (m Model) loadThreads() tea.Msg {
 }
 
 const (
-	messagePage = 300
-	resizeDelay = 50 * time.Millisecond
+	toastDuration = 4 * time.Second
+	messagePage   = 300
+	resizeDelay   = 50 * time.Millisecond
 )
 
 func (m *Model) loadOlderAtTop() tea.Cmd {

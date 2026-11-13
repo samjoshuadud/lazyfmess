@@ -115,7 +115,7 @@ func (m *Model) openLogin(reason string) {
 		m.connecting = false
 		m.inFlight--
 	}
-	m.popup = nil
+	m.popup, m.popupStack = nil, nil
 	m.login = &loginState{screen: loginChoose, notice: reason}
 	if m.loginService != nil {
 		m.login.browsers = m.loginService.Browsers()

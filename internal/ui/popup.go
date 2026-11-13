@@ -39,16 +39,31 @@ type errorMsg struct {
 	text string
 }
 
+func (m *Model) pushPopup(p *popup) {
+	if m.popup != nil {
+		m.popupStack = append(m.popupStack, m.popup)
+	}
+	m.popup = p
+}
+
+func (m *Model) closePopup() {
+	m.popup = nil
+	if n := len(m.popupStack); n > 0 {
+		m.popup = m.popupStack[n-1]
+		m.popupStack = m.popupStack[:n-1]
+	}
+}
+
 func (m *Model) showError(text string) {
-	m.popup = &popup{kind: popupError, title: "Error", body: text}
+	m.pushPopup(&popup{kind: popupError, title: "Error", body: text})
 }
 
 func (m *Model) showConfirm(title, body string, onConfirm func(*Model) tea.Cmd) {
-	m.popup = &popup{kind: popupConfirm, title: title, body: body, onConfirm: onConfirm}
+	m.pushPopup(&popup{kind: popupConfirm, title: title, body: body, onConfirm: onConfirm})
 }
 
 func (m *Model) showMenu(title string, items []menuItem) {
-	m.popup = &popup{kind: popupMenu, title: title, items: items}
+	m.pushPopup(&popup{kind: popupMenu, title: title, items: items})
 }
 
 func (m *Model) showPrompt(title, placeholder string, onSubmit func(*Model, string) tea.Cmd) tea.Cmd {
@@ -60,7 +75,7 @@ func (m *Model) showPrompt(title, placeholder string, onSubmit func(*Model, stri
 	input.PlaceholderStyle = lipgloss.NewStyle().Foreground(muted)
 	input.Width = min(56, m.width-12)
 	input.Focus()
-	m.popup = &popup{kind: popupPrompt, title: title, input: input, onSubmit: onSubmit}
+	m.pushPopup(&popup{kind: popupPrompt, title: title, input: input, onSubmit: onSubmit})
 	return textinput.Blink
 }
 
@@ -82,23 +97,23 @@ func (m Model) updatePopup(msg tea.Msg) (Model, tea.Cmd) {
 	switch p.kind {
 	case popupError:
 		if key.Matches(k, keys.Dismiss) {
-			m.popup = nil
+			m.closePopup()
 		}
 	case popupConfirm:
 		switch {
 		case key.Matches(k, keys.Confirm):
-			m.popup = nil
+			m.closePopup()
 			return m, p.onConfirm(&m)
 		case key.Matches(k, keys.Cancel):
-			m.popup = nil
+			m.closePopup()
 		}
 	case popupPrompt:
 		switch {
 		case key.Matches(k, keys.Select):
-			m.popup = nil
+			m.closePopup()
 			return m, p.onSubmit(&m, strings.TrimSpace(p.input.Value()))
 		case key.Matches(k, keys.Skip):
-			m.popup = nil
+			m.closePopup()
 			return m, nil
 		}
 		var cmd tea.Cmd
@@ -111,10 +126,10 @@ func (m Model) updatePopup(msg tea.Msg) (Model, tea.Cmd) {
 		case key.Matches(k, keys.Down):
 			p.index = min(p.index+1, len(p.items)-1)
 		case key.Matches(k, keys.Select):
-			m.popup = nil
+			m.closePopup()
 			return m, p.items[p.index].action(&m)
 		case key.Matches(k, keys.Cancel):
-			m.popup = nil
+			m.closePopup()
 		}
 	}
 	return m, nil

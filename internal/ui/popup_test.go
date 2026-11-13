@@ -94,3 +94,41 @@ func TestSendFailureOpensErrorPopup(t *testing.T) {
 		t.Fatal("error popup not rendered")
 	}
 }
+
+func TestErrorDoesNotDestroyOpenPrompt(t *testing.T) {
+	t.Parallel()
+	m := Model{keys: newKeyMap(), width: 80, height: 24}
+	m.showPrompt("Send a file", "path", func(*Model, string) tea.Cmd { return nil })
+	m.popup.input.SetValue("~/half-typed")
+	m.showError("network down")
+	if m.popup.kind != popupError {
+		t.Fatalf("error should be on top, got %v", m.popup.kind)
+	}
+	m, _ = m.updatePopup(keyPress("enter"))
+	if m.popup == nil || m.popup.kind != popupPrompt || m.popup.input.Value() != "~/half-typed" {
+		t.Fatalf("prompt should come back intact: %+v", m.popup)
+	}
+	m, _ = m.updatePopup(keyPress("esc"))
+	if m.popup != nil {
+		t.Fatal("prompt should close")
+	}
+}
+
+func TestToastsQueue(t *testing.T) {
+	t.Parallel()
+	m := newTestModel(t, 1, 0)
+	for _, text := range []string{"first", "second", "second", "third"} {
+		model, _ := m.Update(toastMsg{message: text})
+		m = model.(Model)
+	}
+	if m.toast != "first" || len(m.toastQueue) != 2 {
+		t.Fatalf("toast %q queue %v", m.toast, m.toastQueue)
+	}
+	for _, want := range []string{"second", "third", ""} {
+		model, _ := m.Update(toastExpiredMsg{message: m.toast})
+		m = model.(Model)
+		if m.toast != want {
+			t.Fatalf("next toast %q, want %q", m.toast, want)
+		}
+	}
+}
