@@ -428,3 +428,15 @@ func TestCompactAndTinyLayouts(t *testing.T) {
 		}
 	}
 }
+
+func TestRefreshKeepsSelectionUnderFilter(t *testing.T) {
+	t.Parallel()
+	m := newTestModel(t, 5, 0)
+	m.list.SetFilterText("Thread 2")
+	m.selectedID = 2
+	m = drain(t, m, m.loadThreads())
+	item, ok := m.list.SelectedItem().(threadItem)
+	if !ok || item.thread.ID != 2 {
+		t.Fatalf("selection after refresh under a filter: %+v", m.list.SelectedItem())
+	}
+}

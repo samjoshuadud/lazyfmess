@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"lazyfmess/internal/store"
 )
 
@@ -99,5 +101,36 @@ func BenchmarkRenderUncached(b *testing.B) {
 	msgs := bigChat(5000)
 	for i := 0; i < b.N; i++ {
 		renderMessages(msgs, 100, 1, "m0", nil, nil)
+	}
+}
+
+func TestWrapWords(t *testing.T) {
+	t.Parallel()
+	family := "👨‍👩‍👧‍👦"
+	tests := []struct {
+		name  string
+		in    string
+		width int
+		want  []string
+	}{
+		{"short", "hello world", 20, []string{"hello world"}},
+		{"wraps at spaces", "aaa bbb ccc", 8, []string{"aaa bbb", "ccc"}},
+		{"keeps inner spaces", "a    b", 20, []string{"a    b"}},
+		{"keeps indentation", "    code()", 20, []string{"    code()"}},
+		{"long word", "abcdefghijkl", 8, []string{"abcdefgh", "ijkl"}},
+		{"emoji clusters stay whole", family + family + family + family + family, 8, []string{family + family + family + family, family}},
+		{"wide characters", "日本語テストです", 8, []string{"日本語テ", "ストです"}},
+		{"blank line", "a\n\nb", 20, []string{"a", "", "b"}},
+	}
+	for _, tt := range tests {
+		got := wrapWords(tt.in, tt.width)
+		if strings.Join(got, "|") != strings.Join(tt.want, "|") {
+			t.Errorf("%s: got %q want %q", tt.name, got, tt.want)
+		}
+		for _, line := range got {
+			if lipgloss.Width(line) > max(tt.width, 8) {
+				t.Errorf("%s: line %q wider than %d", tt.name, line, tt.width)
+			}
+		}
 	}
 }

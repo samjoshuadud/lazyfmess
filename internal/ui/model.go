@@ -459,6 +459,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toastQueue = append(m.toastQueue, msg.message)
 		}
 		return m, nil
+	case list.FilterMatchesMsg:
+		var cmd tea.Cmd
+		m.list, cmd = m.list.Update(msg)
+		m.selectVisible(m.selectedID)
+		return m, cmd
 	case threadsLoadedMsg:
 		m.threadsLoaded = true
 		if msg.err != nil {
@@ -467,26 +472,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		selected := m.selectedID
 		items := make([]list.Item, 0, len(msg.threads))
-		selectedIndex := 0
-		for i, t := range msg.threads {
+		for _, t := range msg.threads {
 			t.Title = threadTitle(t)
 			items = append(items, threadItem{thread: t})
-			if t.ID == selected {
-				selectedIndex = i
-			}
 		}
-		m.list.SetItems(items)
-		if len(items) > 0 {
-			m.list.Select(selectedIndex)
-		}
+		filterCmd := m.list.SetItems(items)
+		m.selectVisible(selected)
 		m.status = threadSummary(msg.threads)
 		if selected == 0 && len(items) > 0 {
 			if item, ok := m.list.SelectedItem().(threadItem); ok {
 				m.selectedID = item.thread.ID
-				return m, m.loadMessages(item.thread.ID)
+				return m, tea.Batch(filterCmd, m.loadMessages(item.thread.ID))
 			}
 		}
-		return m, m.maybeMarkRead()
+		return m, tea.Batch(filterCmd, m.maybeMarkRead())
 	case messagesLoadedMsg:
 		if msg.err != nil {
 			m.showError(msg.err.Error())
@@ -1051,6 +1050,15 @@ func (m *Model) maybeMarkRead() tea.Cmd {
 	m.lastMark = mark
 	return func() tea.Msg {
 		return markReadMsg{err: m.reader.MarkRead(m.ctx, thread)}
+	}
+}
+
+func (m *Model) selectVisible(threadID int64) {
+	for i, item := range m.list.VisibleItems() {
+		if t, ok := item.(threadItem); ok && t.thread.ID == threadID {
+			m.list.Select(i)
+			return
+		}
 	}
 }
 

@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/rivo/uniseg"
 
 	"lazyfmess/internal/store"
 )
@@ -348,47 +348,71 @@ func wrapWords(s string, width int) []string {
 }
 
 func wrapParagraph(s string, width int) []string {
-	words := strings.FieldsFunc(s, func(r rune) bool {
-		return unicode.IsSpace(r)
-	})
-	if len(words) == 0 {
-		return []string{""}
-	}
+	s = strings.ReplaceAll(s, "\t", "    ")
 	var lines []string
 	var line strings.Builder
-	for _, word := range words {
-		for lipgloss.Width(word) > width {
-			if line.Len() > 0 {
-				lines = append(lines, line.String())
-				line.Reset()
-			}
-			runes := []rune(word)
-			cut := width
-			if cut > len(runes) {
-				cut = len(runes)
-			}
-			for cut > 1 && lipgloss.Width(string(runes[:cut])) > width {
-				cut--
-			}
-			lines = append(lines, string(runes[:cut]))
-			word = string(runes[cut:])
-		}
-		if line.Len() == 0 {
-			line.WriteString(word)
-			continue
-		}
-		candidate := line.String() + " " + word
-		if lipgloss.Width(candidate) <= width {
-			line.WriteByte(' ')
-			line.WriteString(word)
-			continue
-		}
-		lines = append(lines, line.String())
+	lineW := 0
+	flush := func() {
+		lines = append(lines, strings.TrimRight(line.String(), " "))
 		line.Reset()
-		line.WriteString(word)
+		lineW = 0
 	}
-	if line.Len() > 0 {
-		lines = append(lines, line.String())
+	for _, tok := range splitSpaces(s) {
+		w := lipgloss.Width(tok)
+		if tok[0] == ' ' {
+			if lineW == 0 && len(lines) > 0 {
+				continue
+			}
+			if lineW+w > width {
+				flush()
+				continue
+			}
+			line.WriteString(tok)
+			lineW += w
+			continue
+		}
+		for w > width {
+			if lineW > 0 {
+				flush()
+			}
+			head, rest := splitGraphemes(tok, width)
+			lines = append(lines, head)
+			tok, w = rest, lipgloss.Width(rest)
+		}
+		if lineW > 0 && lineW+w > width {
+			flush()
+		}
+		line.WriteString(tok)
+		lineW += w
+	}
+	if lineW > 0 || len(lines) == 0 {
+		flush()
 	}
 	return lines
+}
+
+func splitSpaces(s string) []string {
+	var out []string
+	start := 0
+	for i := 1; i <= len(s); i++ {
+		if i == len(s) || (s[i] == ' ') != (s[start] == ' ') {
+			out = append(out, s[start:i])
+			start = i
+		}
+	}
+	return out
+}
+
+func splitGraphemes(s string, width int) (string, string) {
+	g := uniseg.NewGraphemes(s)
+	used, end := 0, 0
+	for g.Next() {
+		w := lipgloss.Width(g.Str())
+		if used+w > width && end > 0 {
+			break
+		}
+		used += w
+		_, end = g.Positions()
+	}
+	return s[:end], s[end:]
 }
