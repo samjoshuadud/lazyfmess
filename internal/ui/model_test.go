@@ -440,3 +440,16 @@ func TestRefreshKeepsSelectionUnderFilter(t *testing.T) {
 		t.Fatalf("selection after refresh under a filter: %+v", m.list.SelectedItem())
 	}
 }
+
+func TestFastTypingIsTextNotKeys(t *testing.T) {
+	t.Parallel()
+	m := newTestModel(t, 1, 0)
+	m = drain(t, m, keyPress("i"))
+	for _, chunk := range []string{"go ", "left", " then ", "right", " and ", "tab", " ", "enter"} {
+		model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(chunk)})
+		m = model.(Model)
+	}
+	if got := m.composer.Value(); got != "go left then right and tab enter" || m.focus != focusComposer {
+		t.Fatalf("composer %q focus %v", got, m.focus)
+	}
+}

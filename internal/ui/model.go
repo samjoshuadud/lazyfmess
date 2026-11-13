@@ -314,6 +314,10 @@ func (m *Model) checkUnlock() tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if k, ok := msg.(tea.KeyMsg); ok && k.Type == tea.KeyRunes && len(k.Runes) > 1 {
+		k.Paste = true
+		msg = k
+	}
 	switch msg := msg.(type) {
 	case workDoneMsg:
 		m.inFlight--
