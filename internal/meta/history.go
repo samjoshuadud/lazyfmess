@@ -2,13 +2,11 @@ package meta
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"time"
 
 	"go.mau.fi/mautrix-meta/pkg/messagix/securehistory"
-	"go.mau.fi/mautrix-meta/pkg/messagix/socket"
 	"go.mau.fi/mautrix-meta/pkg/messagix/table"
 
 	"lazyfmess/internal/session"
@@ -17,7 +15,6 @@ import (
 
 const (
 	historyPageSize  = 50
-	historyMaxPages  = 20
 	threadBatchDelay = 2 * time.Second
 	threadBatchLimit = 40
 )
@@ -161,17 +158,25 @@ func (c *Client) SyncThreadHistory(ctx context.Context, s *store.Store, thread s
 	if c == nil || s == nil || thread.ID == 0 {
 		return nil
 	}
-	if !table.ThreadType(thread.ThreadType).IsWhatsApp() {
-		return c.syncSocketThread(ctx, s, thread)
-	}
-	if !c.HasHistoryDevice() {
+	fetch, ok := c.historyFetcher(s, thread)
+	if !ok {
 		return nil
 	}
-	res, err := syncHistory(ctx, s, thread, c.encryptedPages(thread), historyPagesPerChat, historyPageDelay)
+	res, err := syncHistory(ctx, s, thread, fetch, historyPagesPerChat, historyPageDelay)
 	return historyError(thread, res, err)
 }
 
-func (c *Client) SyncAllEncryptedHistory(ctx context.Context, s *store.Store, progress func(done, total int)) error {
+func (c *Client) historyFetcher(s *store.Store, thread store.Thread) (pageFetcher, bool) {
+	if !table.ThreadType(thread.ThreadType).IsWhatsApp() {
+		return c.socketPages(s, thread), true
+	}
+	if !c.HasHistoryDevice() {
+		return nil, false
+	}
+	return c.encryptedPages(thread), true
+}
+
+func (c *Client) SyncAllHistory(ctx context.Context, s *store.Store, progress func(done, total int)) error {
 	if err := c.waitReady(ctx); err != nil {
 		return err
 	}
@@ -179,25 +184,23 @@ func (c *Client) SyncAllEncryptedHistory(ctx context.Context, s *store.Store, pr
 	if err != nil {
 		return err
 	}
-	var encrypted []store.Thread
-	for _, t := range threads {
-		if table.ThreadType(t.ThreadType).IsWhatsApp() {
-			encrypted = append(encrypted, t)
-		}
-	}
 	var errs []error
 	remaining := historyPagesPerRun
-	for i, thread := range encrypted {
+	for i, thread := range threads {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		if progress != nil {
-			progress(i, len(encrypted))
+			progress(i, len(threads))
 		}
-		if remaining <= 0 || !c.HasHistoryDevice() {
+		if remaining <= 0 {
 			break
 		}
-		res, err := syncHistory(ctx, s, thread, c.encryptedPages(thread), min(historyPagesPerChat, remaining), historyPageDelay)
+		fetch, ok := c.historyFetcher(s, thread)
+		if !ok {
+			continue
+		}
+		res, err := syncHistory(ctx, s, thread, fetch, min(historyPagesPerChat, remaining), historyPageDelay)
 		remaining -= res.pages
 		if err := historyError(thread, res, err); err != nil {
 			errs = append(errs, err)
@@ -209,7 +212,7 @@ func (c *Client) SyncAllEncryptedHistory(ctx context.Context, s *store.Store, pr
 		}
 	}
 	if progress != nil {
-		progress(len(encrypted), len(encrypted))
+		progress(len(threads), len(threads))
 	}
 	return errors.Join(errs...)
 }
@@ -226,56 +229,4 @@ func historyError(thread store.Thread, res historyResult, err error) error {
 		return nil
 	}
 	return fmt.Errorf("chat %d (%s): %w", thread.ID, thread.Title, errors.Join(errs...))
-}
-
-func (c *Client) syncSocketThread(ctx context.Context, s *store.Store, thread store.Thread) error {
-	var refTS int64
-	var refID string
-	oldest, err := s.OldestMessage(ctx, thread.ID)
-	switch {
-	case err == nil:
-		refTS = oldest.Timestamp.UnixMilli()
-		refID = oldest.ID
-	case errors.Is(err, sql.ErrNoRows):
-	default:
-		return err
-	}
-	for page := 0; page < historyMaxPages; page++ {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		var task socket.Task
-		if refID == "" {
-			task = &socket.CreateThreadTask{ThreadFBID: thread.ID, SyncGroup: 1}
-		} else {
-			task = &socket.FetchMessagesTask{
-				ThreadKey:            thread.ID,
-				Direction:            0,
-				ReferenceTimestampMs: refTS,
-				ReferenceMessageId:   refID,
-				SyncGroup:            1,
-				Cursor:               c.mx.GetCursor(1),
-			}
-		}
-		tbl, err := c.mx.ExecuteTasks(ctx, task)
-		if err != nil {
-			return fmt.Errorf("fetch socket history %d: %w", thread.ID, err)
-		}
-		if err := ApplyTable(ctx, s, tbl); err != nil {
-			return err
-		}
-		upsert, _ := tbl.WrapMessages()
-		um := upsert[thread.ID]
-		if um == nil || um.Range == nil || !um.Range.HasMoreBefore || um.Range.MinMessageId == "" || um.Range.MinMessageId == refID {
-			return nil
-		}
-		refTS = um.Range.MinTimestampMs
-		refID = um.Range.MinMessageId
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(500 * time.Millisecond):
-		}
-	}
-	return nil
 }

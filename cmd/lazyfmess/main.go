@@ -174,13 +174,10 @@ func connect(ctx context.Context, client *meta.Client, db *store.Store) error {
 func syncHistoryBackground(ctx context.Context, client *meta.Client, db *store.Store, app *ui.App) error {
 	inboxErr := client.SyncInboxThreads(ctx, db)
 	app.Notify()
-	var historyErr error
-	if client.HasHistoryDevice() {
-		historyErr = client.SyncAllEncryptedHistory(ctx, db, func(done, total int) {
-			app.SyncProgress(done, total)
-			app.Notify()
-		})
-	}
+	historyErr := client.SyncAllHistory(ctx, db, func(done, total int) {
+		app.SyncProgress(done, total)
+		app.Notify()
+	})
 	return summarizeSyncErrors(errors.Join(inboxErr, historyErr))
 }
 

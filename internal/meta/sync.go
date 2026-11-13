@@ -266,8 +266,12 @@ func upsertWrapped(ctx context.Context, s *store.Store, msg *table.WrappedMessag
 	if err := s.EnsureThread(ctx, key); err != nil {
 		return err
 	}
+	return s.UpsertMessage(ctx, wrappedMessage(msg, key))
+}
+
+func wrappedMessage(msg *table.WrappedMessage, key int64) store.Message {
 	kind, url, mime, name, durationMs := mediaFromWrapped(msg)
-	return s.UpsertMessage(ctx, store.Message{
+	return store.Message{
 		ID:              msg.MessageId,
 		ThreadID:        key,
 		SenderID:        msg.SenderId,
@@ -283,7 +287,7 @@ func upsertWrapped(ctx context.Context, s *store.Store, msg *table.WrappedMessag
 		ReplySenderID:   msg.ReplyToUserId,
 		Edited:          msg.EditCount > 0,
 		Unsent:          msg.IsUnsent,
-	})
+	}
 }
 
 func upsertDeletedMessage(ctx context.Context, s *store.Store, msg *table.LSDeleteThenInsertMessage) error {

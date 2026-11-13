@@ -45,6 +45,8 @@ type Client struct {
 	cookieUserID  int64
 	platform      string
 	cookieMu      sync.Mutex
+	rangeMu       sync.Mutex
+	rangeWaiters  map[int64]chan rangeSignal
 	savedCookies  map[string]string
 	savedNative   *session.NativeSession
 	ready         chan struct{}
@@ -380,6 +382,7 @@ func (c *Client) onEvent(ctx context.Context, evt any) {
 	switch e := evt.(type) {
 	case *table.LSTable:
 		c.handler(ctx, Event{Type: "table", Table: e})
+		c.notifyRanges(e)
 	case *messagix.ConnectedEvent:
 		c.handler(ctx, Event{Type: "connected"})
 	case *messagix.ReconnectedEvent:
