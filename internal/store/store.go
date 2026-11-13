@@ -162,6 +162,12 @@ CREATE TABLE IF NOT EXISTS participant_reads (
 	read_ms INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (thread_id, contact_id)
 );
+CREATE TABLE IF NOT EXISTS history_state (
+	thread_id INTEGER PRIMARY KEY,
+	before_ms INTEGER NOT NULL DEFAULT 0,
+	reached_start INTEGER NOT NULL DEFAULT 0,
+	updated_at_ms INTEGER NOT NULL DEFAULT 0
+);
 CREATE INDEX IF NOT EXISTS messages_thread_ts ON messages(thread_id, timestamp_ms);
 `
 	if _, err := s.q.ExecContext(ctx, schema); err != nil {
