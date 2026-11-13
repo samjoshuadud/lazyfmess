@@ -47,7 +47,7 @@ func TestSystemMessageLine(t *testing.T) {
 		{ID: "b", SenderID: 1, Text: "named the group Hikers", System: true, Timestamp: base.Add(time.Minute)},
 		{ID: "c", SenderID: 2, SenderName: "Dana", Text: "nice", Timestamp: base.Add(2 * time.Minute)},
 	}
-	out := renderMessages(msgs, 60, 1, "", nil, nil).content
+	out := renderMessages(msgs, 60, 1, "", nil, time.Time{}, nil).content
 	if !strings.Contains(out, "You named the group Hikers") {
 		t.Fatalf("system line missing:\n%s", out)
 	}
@@ -69,20 +69,20 @@ func TestRenderCacheReusesBlocks(t *testing.T) {
 	t.Parallel()
 	msgs := bigChat(200)
 	cache := map[string]string{}
-	first := renderMessages(msgs, 80, 1, "m10", nil, cache)
+	first := renderMessages(msgs, 80, 1, "m10", nil, time.Time{}, cache)
 	if len(cache) != len(msgs) {
 		t.Fatalf("cache size %d, want %d", len(cache), len(msgs))
 	}
-	moved := renderMessages(msgs, 80, 1, "m11", nil, cache)
+	moved := renderMessages(msgs, 80, 1, "m11", nil, time.Time{}, cache)
 	if len(cache) != len(msgs) {
 		t.Fatalf("a cursor move rendered new blocks: cache size %d", len(cache))
 	}
-	uncached := renderMessages(msgs, 80, 1, "m11", nil, nil)
+	uncached := renderMessages(msgs, 80, 1, "m11", nil, time.Time{}, nil)
 	if moved.content != uncached.content || first.content == moved.content {
 		t.Fatal("cached render differs from a fresh render")
 	}
 	msgs[50].Edited = true
-	renderMessages(msgs, 80, 1, "m11", nil, cache)
+	renderMessages(msgs, 80, 1, "m11", nil, time.Time{}, cache)
 	if len(cache) != len(msgs)+1 {
 		t.Fatalf("an edit should re-render exactly one block, cache size %d", len(cache))
 	}
@@ -91,17 +91,17 @@ func TestRenderCacheReusesBlocks(t *testing.T) {
 func BenchmarkRenderCursorMove(b *testing.B) {
 	msgs := bigChat(5000)
 	cache := map[string]string{}
-	renderMessages(msgs, 100, 1, "m0", nil, cache)
+	renderMessages(msgs, 100, 1, "m0", nil, time.Time{}, cache)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		renderMessages(msgs, 100, 1, fmt.Sprintf("m%d", i%5000), nil, cache)
+		renderMessages(msgs, 100, 1, fmt.Sprintf("m%d", i%5000), nil, time.Time{}, cache)
 	}
 }
 
 func BenchmarkRenderUncached(b *testing.B) {
 	msgs := bigChat(5000)
 	for i := 0; i < b.N; i++ {
-		renderMessages(msgs, 100, 1, "m0", nil, nil)
+		renderMessages(msgs, 100, 1, "m0", nil, time.Time{}, nil)
 	}
 }
 
@@ -139,7 +139,7 @@ func TestWrapWords(t *testing.T) {
 func TestOwnBlockIsAlignedAsAWhole(t *testing.T) {
 	t.Parallel()
 	msgs := []store.Message{{ID: "a", SenderID: 1, Text: "a long message that wraps across several lines in the pane", Timestamp: time.UnixMilli(1)}}
-	out := renderMessages(msgs, 60, 1, "", nil, nil).content
+	out := renderMessages(msgs, 60, 1, "", nil, time.Time{}, nil).content
 	col := -1
 	for _, line := range strings.Split(ansi.Strip(out), "\n") {
 		i := strings.Index(line, "▏")
@@ -153,5 +153,41 @@ func TestOwnBlockIsAlignedAsAWhole(t *testing.T) {
 	}
 	if col <= 0 {
 		t.Fatalf("own message should be right-aligned with a bar:\n%s", ansi.Strip(out))
+	}
+}
+
+func TestNewMessagesRule(t *testing.T) {
+	t.Parallel()
+	base := time.UnixMilli(1_700_000_000_000)
+	msgs := []store.Message{
+		{ID: "a", SenderID: 2, SenderName: "Dana", Text: "old", Timestamp: base},
+		{ID: "b", SenderID: 2, SenderName: "Dana", Text: "fresh", Timestamp: base.Add(time.Minute)},
+		{ID: "c", SenderID: 1, SenderName: "Pat", Text: "mine", Timestamp: base.Add(2 * time.Minute)},
+	}
+	tests := []struct {
+		name  string
+		after time.Time
+		want  bool
+	}{
+		{"unread from someone else", base.Add(10 * time.Second), true},
+		{"everything read", time.Time{}, false},
+		{"only own messages newer", base.Add(90 * time.Second), false},
+	}
+	for _, tt := range tests {
+		out := renderMessages(msgs, 60, 1, "", nil, tt.after, nil).content
+		lines := strings.Split(out, "\n")
+		at := -1
+		for i, l := range lines {
+			if strings.Contains(l, "New messages") {
+				at = i
+			}
+		}
+		if (at >= 0) != tt.want {
+			t.Errorf("%s: rule present %v, want %v", tt.name, at >= 0, tt.want)
+			continue
+		}
+		if tt.want && !strings.Contains(strings.Join(lines[at:], "\n"), "fresh") || tt.want && strings.Contains(strings.Join(lines[at:], "\n"), "old") {
+			t.Errorf("%s: rule not placed between old and fresh", tt.name)
+		}
 	}
 }

@@ -26,7 +26,7 @@ func (m *Model) refreshViewport() {
 	if len(m.blocks) > 3*len(m.messages)+64 {
 		clear(m.blocks)
 	}
-	chat := renderMessages(m.messages, m.viewport.Width, m.selfAccountID(), cursor, m.readMarks, m.blocks)
+	chat := renderMessages(m.messages, m.viewport.Width, m.selfAccountID(), cursor, m.readMarks, m.unreadSince, m.blocks)
 	if len(chat.order) == 0 && (m.historyLoading[m.selectedID] || m.loading()) {
 		chat.content = chatPlaceholder("Loading messages…", m.viewport.Width)
 	}

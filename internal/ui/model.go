@@ -135,6 +135,7 @@ type Model struct {
 	searchIndex    int
 	selectedID     int64
 	openedID       int64
+	unreadSince    time.Time
 	lastMark       readMark
 	loadedID       int64
 	cursorID       string
@@ -709,6 +710,7 @@ func (m Model) updateMain(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		m.selectedID = item.thread.ID
 		m.openedID = item.thread.ID
+		m.unreadSince = unreadSince(item.thread)
 		m.setFocus(focusMessages)
 		return m, tea.Batch(m.loadMessages(item.thread.ID), m.fetchHistory(item.thread), m.maybeMarkRead())
 	}
@@ -1064,6 +1066,13 @@ func (m *Model) selectVisible(threadID int64) {
 			return
 		}
 	}
+}
+
+func unreadSince(t store.Thread) time.Time {
+	if !t.Unread() {
+		return time.Time{}
+	}
+	return t.LastRead
 }
 
 func threadSummary(threads []store.Thread) string {

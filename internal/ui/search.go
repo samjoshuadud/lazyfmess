@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -95,6 +96,10 @@ func (m Model) updateSearch(msg tea.Msg) (Model, tea.Cmd) {
 		m.closeSearchModal()
 		m.selectedID = msg.threadID
 		m.openedID = msg.threadID
+		m.unreadSince = time.Time{}
+		if thread, err := m.store.GetThread(m.ctx, msg.threadID); err == nil {
+			m.unreadSince = unreadSince(thread)
+		}
 		m.setFocus(focusMessages)
 		m.status = "opened chat"
 		cmds := []tea.Cmd{m.loadThreads, m.loadMessages(msg.threadID)}

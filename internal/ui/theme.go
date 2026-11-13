@@ -9,11 +9,11 @@ import (
 )
 
 var (
-	text   = lipgloss.Color("252")
-	muted  = lipgloss.Color("245")
-	accent = lipgloss.Color("81")
-	danger = lipgloss.Color("203")
-	line   = lipgloss.Color("238")
+	text   = lipgloss.AdaptiveColor{Light: "236", Dark: "252"}
+	muted  = lipgloss.AdaptiveColor{Light: "243", Dark: "245"}
+	accent = lipgloss.AdaptiveColor{Light: "31", Dark: "81"}
+	danger = lipgloss.AdaptiveColor{Light: "160", Dark: "203"}
+	line   = lipgloss.AdaptiveColor{Light: "250", Dark: "238"}
 
 	titleStyle = lipgloss.NewStyle().
 			Foreground(accent).
@@ -56,8 +56,15 @@ var (
 	quoteStyle = lipgloss.NewStyle().Foreground(muted).Italic(true)
 )
 
-func senderPalette() []lipgloss.Color {
-	return []lipgloss.Color{"114", "180", "176", "110", "216", "151"}
+func senderPalette() []lipgloss.AdaptiveColor {
+	return []lipgloss.AdaptiveColor{
+		{Light: "29", Dark: "114"},
+		{Light: "130", Dark: "180"},
+		{Light: "127", Dark: "176"},
+		{Light: "25", Dark: "110"},
+		{Light: "166", Dark: "216"},
+		{Light: "30", Dark: "151"},
+	}
 }
 
 func newThreadList() list.Model {

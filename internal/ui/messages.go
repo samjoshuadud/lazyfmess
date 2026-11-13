@@ -59,7 +59,7 @@ type chatRender struct {
 	order   []string
 }
 
-func renderMessages(messages []store.Message, width int, selfID int64, cursorID string, readMarks []time.Time, cache map[string]string) chatRender {
+func renderMessages(messages []store.Message, width int, selfID int64, cursorID string, readMarks []time.Time, unreadAfter time.Time, cache map[string]string) chatRender {
 	if width <= 0 {
 		width = 40
 	}
@@ -72,6 +72,7 @@ func renderMessages(messages []store.Message, width int, selfID int64, cursorID 
 	var prevTime time.Time
 	now := time.Now()
 	seenID, seen := seenStatus(messages, selfID, readMarks)
+	unreadShown := unreadAfter.IsZero()
 
 	for _, msg := range messages {
 		body := messageBody(msg)
@@ -83,12 +84,20 @@ func renderMessages(messages []store.Message, width int, selfID int64, cursorID 
 		newDay := first || !sameDay(msg.Timestamp.Local(), prevTime.Local())
 		closeInTime := !first && msg.SenderID == prevSender && !newDay && msg.Timestamp.Sub(prevTime) < 5*time.Minute
 		showHeader := !closeInTime
+		unreadHere := !unreadShown && !mine && !msg.System && !msg.Pending && msg.Timestamp.After(unreadAfter)
+		if unreadHere {
+			showHeader = true
+			unreadShown = true
+		}
 
 		if !first && showHeader {
 			rows = append(rows, "")
 		}
 		if newDay {
 			rows = append(rows, daySeparator(dayLabel(msg.Timestamp, now), width), "")
+		}
+		if unreadHere {
+			rows = append(rows, newMessagesRule(width), "")
 		}
 		status := ""
 		if msg.ID == seenID {
@@ -207,10 +216,18 @@ func messageFooter(msg store.Message, status string) string {
 }
 
 func daySeparator(label string, width int) string {
+	return labeledRule(label, width, timeStyle)
+}
+
+func newMessagesRule(width int) string {
+	return labeledRule("New messages", width, focusMark)
+}
+
+func labeledRule(label string, width int, style lipgloss.Style) string {
 	label = " " + label + " "
 	side := max((width-lipgloss.Width(label))/2, 1)
 	rule := strings.Repeat("─", side)
-	return timeStyle.Render(lipgloss.PlaceHorizontal(width, lipgloss.Center, rule+label+rule))
+	return style.Render(lipgloss.PlaceHorizontal(width, lipgloss.Center, rule+label+rule))
 }
 
 func messageBody(msg store.Message) string {
