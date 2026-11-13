@@ -146,6 +146,10 @@ type Model struct {
 	rightWidth     int
 	messages       []store.Message
 	readMarks      []time.Time
+	messageLimit   int
+	moreAbove      bool
+	anchorID       string
+	anchorOffset   int
 	blocks         map[string]string
 }
 
@@ -442,15 +446,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		newThread := msg.threadID != m.loadedID
-		follow := newThread || m.viewport.AtBottom()
+		if newThread {
+			m.messageLimit = messagePage
+			m.anchorID = ""
+		}
+		m.moreAbove = len(msg.messages) >= m.messageLimit
+		follow := (newThread || m.viewport.AtBottom()) && m.anchorID == ""
 		cursorAtEnd := len(m.order) == 0 || m.cursorID == m.order[len(m.order)-1]
 		m.loadedID = msg.threadID
 		m.messages = msg.messages
 		m.readMarks = msg.readMarks
 		m.order = messageOrder(m.messages)
-		m.placeCursor(newThread || cursorAtEnd)
+		m.placeCursor((newThread || cursorAtEnd) && m.anchorID == "")
 		m.refreshViewport()
-		if follow {
+		if span, ok := m.spans[m.anchorID]; ok {
+			m.viewport.SetYOffset(span.start - m.anchorOffset)
+			m.anchorID = ""
+			m.status = ""
+		} else if follow {
 			m.viewport.GotoBottom()
 		}
 		return m, m.maybeMarkRead()
@@ -684,8 +697,10 @@ func (m Model) updateMessages(msg tea.Msg) (Model, tea.Cmd) {
 		m.moveCursor(1)
 	case key.Matches(k, keys.Up):
 		m.moveCursor(-1)
+		return m, m.loadOlderAtTop()
 	case key.Matches(k, keys.Top):
 		m.moveCursor(-len(m.order))
+		return m, m.loadOlderAtTop()
 	case key.Matches(k, keys.Bottom):
 		m.moveCursor(len(m.order))
 	case key.Matches(k, keys.HalfDown):
@@ -790,9 +805,27 @@ func (m Model) loadThreads() tea.Msg {
 	return threadsLoadedMsg{threads: threads, err: err}
 }
 
+const messagePage = 300
+
+func (m *Model) loadOlderAtTop() tea.Cmd {
+	if !m.moreAbove || m.anchorID != "" || len(m.order) == 0 || m.cursorID != m.order[0] {
+		return nil
+	}
+	span := m.spans[m.cursorID]
+	m.anchorID = m.cursorID
+	m.anchorOffset = span.start - m.viewport.YOffset
+	m.messageLimit += messagePage
+	m.status = "loading older messages"
+	return m.loadMessages(m.selectedID)
+}
+
 func (m Model) loadMessages(threadID int64) tea.Cmd {
+	limit := m.messageLimit
+	if threadID != m.loadedID || limit == 0 {
+		limit = messagePage
+	}
 	return func() tea.Msg {
-		msgs, err := m.store.ListMessages(m.ctx, threadID)
+		msgs, err := m.store.ListRecentMessages(m.ctx, threadID, limit)
 		if err != nil {
 			return messagesLoadedMsg{threadID: threadID, err: err}
 		}

@@ -423,6 +423,10 @@ WHERE t.id = ?
 }
 
 func (s *Store) ListMessages(ctx context.Context, threadID int64) ([]Message, error) {
+	return s.ListRecentMessages(ctx, threadID, -1)
+}
+
+func (s *Store) ListRecentMessages(ctx context.Context, threadID int64, limit int) ([]Message, error) {
 	rows, err := s.q.QueryContext(ctx, `
 SELECT m.id, m.thread_id, m.sender_id, COALESCE(c.name, ''), m.text, m.timestamp_ms, m.pending, m.error,
 	m.media_kind, m.media_url, m.media_mime, m.media_name, m.media_duration_ms,
@@ -430,13 +434,14 @@ SELECT m.id, m.thread_id, m.sender_id, COALESCE(c.name, ''), m.text, m.timestamp
 	CASE WHEN m.reply_text != '' THEN m.reply_text ELSE COALESCE(r.text, '') END,
 	CASE WHEN m.reply_sender_id != 0 THEN m.reply_sender_id ELSE COALESCE(r.sender_id, 0) END,
 	COALESCE(rc.name, ''), m.edited, m.unsent, m.system
-FROM messages m
+FROM (
+	SELECT * FROM messages WHERE thread_id = ? ORDER BY timestamp_ms DESC, id DESC LIMIT ?
+) m
 LEFT JOIN contacts c ON c.id = m.sender_id
 LEFT JOIN messages r ON m.reply_to_id != '' AND r.id = m.reply_to_id
 LEFT JOIN contacts rc ON rc.id = CASE WHEN m.reply_sender_id != 0 THEN m.reply_sender_id ELSE r.sender_id END
-WHERE m.thread_id = ?
 ORDER BY m.timestamp_ms ASC, m.id ASC
-`, threadID)
+`, threadID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list messages: %w", err)
 	}
@@ -460,6 +465,9 @@ ORDER BY m.timestamp_ms ASC, m.id ASC
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("list messages: %w", err)
 	}
+	if len(out) == 0 {
+		return out, nil
+	}
 	return out, s.attachReactions(ctx, threadID, out)
 }
 
@@ -468,9 +476,9 @@ func (s *Store) attachReactions(ctx context.Context, threadID int64, messages []
 SELECT r.message_id, r.actor_id, r.emoji
 FROM reactions r
 JOIN messages m ON m.id = r.message_id
-WHERE m.thread_id = ?
+WHERE m.thread_id = ? AND m.timestamp_ms >= ?
 ORDER BY r.rowid
-`, threadID)
+`, threadID, messages[0].Timestamp.UnixMilli())
 	if err != nil {
 		return fmt.Errorf("list reactions: %w", err)
 	}

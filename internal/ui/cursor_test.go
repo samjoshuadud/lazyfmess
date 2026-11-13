@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -89,5 +90,38 @@ func TestMouseClickFocusesPanel(t *testing.T) {
 		if m.focus != tt.want {
 			t.Errorf("click (%d,%d): focus %v, want %v", tt.x, tt.y, m.focus, tt.want)
 		}
+	}
+}
+
+func TestOlderMessagesLoadAtTop(t *testing.T) {
+	t.Parallel()
+	m := newTestModel(t, 1, 0)
+	base := time.UnixMilli(1_700_000_000_000)
+	for i := 0; i < messagePage+50; i++ {
+		if err := m.store.UpsertMessage(context.Background(), store.Message{ID: fmt.Sprintf("x%03d", i), ThreadID: 1, SenderID: 2, Text: "line", Timestamp: base.Add(time.Duration(i) * time.Minute)}); err != nil {
+			t.Fatalf("UpsertMessage: %v", err)
+		}
+	}
+	m = drain(t, m, RefreshMsg{})
+	m = drain(t, m, keyPress("2"))
+	if len(m.messages) != messagePage || !m.moreAbove {
+		t.Fatalf("first load: %d messages, moreAbove %v", len(m.messages), m.moreAbove)
+	}
+	m.moveCursor(-len(m.order))
+	if m.cursorID != "x050" {
+		t.Fatalf("cursor after jumping to the top: %s", m.cursorID)
+	}
+	screenRow := m.spans["x050"].start - m.viewport.YOffset
+	for _, msg := range runCmd(m.loadOlderAtTop()) {
+		m = drain(t, m, msg)
+	}
+	if len(m.messages) != messagePage+50 || m.moreAbove {
+		t.Fatalf("after loading older: %d messages, moreAbove %v", len(m.messages), m.moreAbove)
+	}
+	if m.cursorID != "x050" || m.spans["x050"].start-m.viewport.YOffset != screenRow {
+		t.Fatalf("view should stay on the same message: cursor %s row %d want %d", m.cursorID, m.spans["x050"].start-m.viewport.YOffset, screenRow)
+	}
+	if m.loadOlderAtTop() != nil {
+		t.Fatal("nothing older is left to load")
 	}
 }

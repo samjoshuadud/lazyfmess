@@ -412,3 +412,39 @@ func TestMigrateRepairsStaleThreadActivity(t *testing.T) {
 		t.Fatalf("repaired thread: %+v", got)
 	}
 }
+
+func TestListRecentMessages(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, err := Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	for i := 0; i < 10; i++ {
+		if err := s.UpsertMessage(ctx, Message{ID: fmt.Sprintf("m%d", i), ThreadID: 1, Timestamp: time.UnixMilli(int64(i))}); err != nil {
+			t.Fatalf("UpsertMessage: %v", err)
+		}
+	}
+	if err := s.SetReaction(ctx, Reaction{MessageID: "m9", ActorID: 2, Emoji: "👍"}); err != nil {
+		t.Fatalf("SetReaction: %v", err)
+	}
+	tests := []struct {
+		limit int
+		first string
+		count int
+	}{
+		{3, "m7", 3},
+		{-1, "m0", 10},
+		{50, "m0", 10},
+	}
+	for _, tt := range tests {
+		got, err := s.ListRecentMessages(ctx, 1, tt.limit)
+		if err != nil {
+			t.Fatalf("limit %d: %v", tt.limit, err)
+		}
+		if len(got) != tt.count || got[0].ID != tt.first || got[len(got)-1].ID != "m9" || len(got[len(got)-1].Reactions) != 1 {
+			t.Errorf("limit %d: got %d messages starting %s", tt.limit, len(got), got[0].ID)
+		}
+	}
+}
