@@ -2,6 +2,32 @@
 
 All notable changes to lazyfmess are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### History
+
+- History sync resumes from a saved position per chat instead of restarting from the newest message at every launch, so long histories fill in over several launches.
+- A failing chat or an undecryptable message no longer stops the sync. Problems are logged and summarized in one notice.
+- Plain chats page back to their start and join the background sync.
+- Encrypted history keeps files, locations, contacts, polls, stickers, voice messages, group events, edits, and reactions.
+- Chat dates and previews no longer move backwards when older messages arrive. Existing chats are repaired on first start.
+
+### Interface
+
+- Messages carry a sender-colored bar. Own messages are right-aligned as a block, and text is capped at 72 columns.
+- Opening a chat shows a "New messages" line before the first unread message.
+- Colors adapt to light terminals.
+- Vim motions: counts (`5j`), `gg` `G`, `ctrl+d` `ctrl+u` `ctrl+f` `ctrl+b`, `H` `M` `L`, `zt` `zz` `zb`, `/` chat search with `n` `N`, `]m` `[m` for media, and `]u` `[u` for unread chats. `n` and `p` no longer jump between media.
+- Terminals narrower than 80 columns show one panel at a time, and terminals below 40x12 show a size notice.
+- Esc cancels an edit. Resizing keeps the newest message in view. Errors no longer replace an open prompt, and notices queue.
+- Wrapping keeps runs of spaces and does not split emoji.
+
+### Performance
+
+- Rendered messages are cached, only the newest 300 messages load first, and older ones load when the cursor reaches the top.
+- Background events no longer block the interface, and sending a message no longer waits on the database.
+- `lazyfmess.log` is moved to `lazyfmess.log.1` at startup once it passes 10 MB.
+
 ## [0.1.0] - 2026-11-09
 
 First release.
