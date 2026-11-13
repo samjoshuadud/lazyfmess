@@ -136,6 +136,8 @@ type Model struct {
 	selectedID     int64
 	openedID       int64
 	unreadSince    time.Time
+	pending        pendingMotion
+	search         string
 	lastMark       readMark
 	loadedID       int64
 	cursorID       string
@@ -636,6 +638,9 @@ func (m Model) updateMain(msg tea.Msg) (Model, tea.Cmd) {
 		return m.updateFocused(msg)
 	}
 	keys := m.keys
+	if cmd, ok := m.motionKey(k); ok {
+		return m, cmd
+	}
 	switch {
 	case key.Matches(k, keys.ForceQuit):
 		return m, tea.Quit
@@ -708,11 +713,7 @@ func (m Model) updateMain(msg tea.Msg) (Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		m.selectedID = item.thread.ID
-		m.openedID = item.thread.ID
-		m.unreadSince = unreadSince(item.thread)
-		m.setFocus(focusMessages)
-		return m, tea.Batch(m.loadMessages(item.thread.ID), m.fetchHistory(item.thread), m.maybeMarkRead())
+		return m, m.openThread(item.thread)
 	}
 	return m.updateFocused(msg)
 }
@@ -755,18 +756,9 @@ func (m Model) updateMessages(msg tea.Msg) (Model, tea.Cmd) {
 		m.moveCursor(-1)
 		return m, m.loadOlderAtTop()
 	case key.Matches(k, keys.Top):
-		m.moveCursor(-len(m.order))
-		return m, m.loadOlderAtTop()
+		return m, m.toEdge(true)
 	case key.Matches(k, keys.Bottom):
 		m.moveCursor(len(m.order))
-	case key.Matches(k, keys.HalfDown):
-		m.viewport.HalfPageDown()
-	case key.Matches(k, keys.HalfUp):
-		m.viewport.HalfPageUp()
-	case key.Matches(k, keys.NextMedia):
-		m.jumpMedia(1)
-	case key.Matches(k, keys.PrevMedia):
-		m.jumpMedia(-1)
 	case key.Matches(k, keys.OpenMedia):
 		msg, _ := m.cursorMessage()
 		return m, m.track(m.openMedia(msg))
@@ -824,6 +816,7 @@ func (m *Model) cycleFocus(delta int) {
 
 func (m *Model) setFocus(pane focusPane) {
 	m.focus = pane
+	m.pending = pendingMotion{}
 	m.applyFocus()
 	m.refreshViewport()
 }
@@ -1066,6 +1059,15 @@ func (m *Model) selectVisible(threadID int64) {
 			return
 		}
 	}
+}
+
+func (m *Model) openThread(t store.Thread) tea.Cmd {
+	m.selectedID = t.ID
+	m.openedID = t.ID
+	m.unreadSince = unreadSince(t)
+	m.search = ""
+	m.setFocus(focusMessages)
+	return tea.Batch(m.loadMessages(t.ID), m.fetchHistory(t), m.maybeMarkRead())
 }
 
 func unreadSince(t store.Thread) time.Time {

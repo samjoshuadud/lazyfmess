@@ -47,7 +47,7 @@ func TestSystemMessageLine(t *testing.T) {
 		{ID: "b", SenderID: 1, Text: "named the group Hikers", System: true, Timestamp: base.Add(time.Minute)},
 		{ID: "c", SenderID: 2, SenderName: "Dana", Text: "nice", Timestamp: base.Add(2 * time.Minute)},
 	}
-	out := renderMessages(msgs, 60, 1, "", nil, time.Time{}, nil).content
+	out := renderMessages(msgs, 60, 1, "", nil, time.Time{}, nil, nil).content
 	if !strings.Contains(out, "You named the group Hikers") {
 		t.Fatalf("system line missing:\n%s", out)
 	}
@@ -69,20 +69,20 @@ func TestRenderCacheReusesBlocks(t *testing.T) {
 	t.Parallel()
 	msgs := bigChat(200)
 	cache := map[string]string{}
-	first := renderMessages(msgs, 80, 1, "m10", nil, time.Time{}, cache)
+	first := renderMessages(msgs, 80, 1, "m10", nil, time.Time{}, nil, cache)
 	if len(cache) != len(msgs) {
 		t.Fatalf("cache size %d, want %d", len(cache), len(msgs))
 	}
-	moved := renderMessages(msgs, 80, 1, "m11", nil, time.Time{}, cache)
+	moved := renderMessages(msgs, 80, 1, "m11", nil, time.Time{}, nil, cache)
 	if len(cache) != len(msgs) {
 		t.Fatalf("a cursor move rendered new blocks: cache size %d", len(cache))
 	}
-	uncached := renderMessages(msgs, 80, 1, "m11", nil, time.Time{}, nil)
+	uncached := renderMessages(msgs, 80, 1, "m11", nil, time.Time{}, nil, nil)
 	if moved.content != uncached.content || first.content == moved.content {
 		t.Fatal("cached render differs from a fresh render")
 	}
 	msgs[50].Edited = true
-	renderMessages(msgs, 80, 1, "m11", nil, time.Time{}, cache)
+	renderMessages(msgs, 80, 1, "m11", nil, time.Time{}, nil, cache)
 	if len(cache) != len(msgs)+1 {
 		t.Fatalf("an edit should re-render exactly one block, cache size %d", len(cache))
 	}
@@ -91,17 +91,17 @@ func TestRenderCacheReusesBlocks(t *testing.T) {
 func BenchmarkRenderCursorMove(b *testing.B) {
 	msgs := bigChat(5000)
 	cache := map[string]string{}
-	renderMessages(msgs, 100, 1, "m0", nil, time.Time{}, cache)
+	renderMessages(msgs, 100, 1, "m0", nil, time.Time{}, nil, cache)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		renderMessages(msgs, 100, 1, fmt.Sprintf("m%d", i%5000), nil, time.Time{}, cache)
+		renderMessages(msgs, 100, 1, fmt.Sprintf("m%d", i%5000), nil, time.Time{}, nil, cache)
 	}
 }
 
 func BenchmarkRenderUncached(b *testing.B) {
 	msgs := bigChat(5000)
 	for i := 0; i < b.N; i++ {
-		renderMessages(msgs, 100, 1, "m0", nil, time.Time{}, nil)
+		renderMessages(msgs, 100, 1, "m0", nil, time.Time{}, nil, nil)
 	}
 }
 
@@ -139,7 +139,7 @@ func TestWrapWords(t *testing.T) {
 func TestOwnBlockIsAlignedAsAWhole(t *testing.T) {
 	t.Parallel()
 	msgs := []store.Message{{ID: "a", SenderID: 1, Text: "a long message that wraps across several lines in the pane", Timestamp: time.UnixMilli(1)}}
-	out := renderMessages(msgs, 60, 1, "", nil, time.Time{}, nil).content
+	out := renderMessages(msgs, 60, 1, "", nil, time.Time{}, nil, nil).content
 	col := -1
 	for _, line := range strings.Split(ansi.Strip(out), "\n") {
 		i := strings.Index(line, "▏")
@@ -174,7 +174,7 @@ func TestNewMessagesRule(t *testing.T) {
 		{"only own messages newer", base.Add(90 * time.Second), false},
 	}
 	for _, tt := range tests {
-		out := renderMessages(msgs, 60, 1, "", nil, tt.after, nil).content
+		out := renderMessages(msgs, 60, 1, "", nil, tt.after, nil, nil).content
 		lines := strings.Split(out, "\n")
 		at := -1
 		for i, l := range lines {

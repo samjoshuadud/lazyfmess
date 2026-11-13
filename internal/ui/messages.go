@@ -59,7 +59,7 @@ type chatRender struct {
 	order   []string
 }
 
-func renderMessages(messages []store.Message, width int, selfID int64, cursorID string, readMarks []time.Time, unreadAfter time.Time, cache map[string]string) chatRender {
+func renderMessages(messages []store.Message, width int, selfID int64, cursorID string, readMarks []time.Time, unreadAfter time.Time, matches map[string]bool, cache map[string]string) chatRender {
 	if width <= 0 {
 		width = 40
 	}
@@ -121,8 +121,11 @@ func renderMessages(messages []store.Message, width int, selfID int64, cursorID 
 		}
 		block := strings.Split(rendered, "\n")
 		gutter := " "
-		if msg.ID == cursorID {
+		switch {
+		case msg.ID == cursorID:
 			gutter = focusMark.Render("▌")
+		case matches[msg.ID]:
+			gutter = focusMark.Render("▪")
 		}
 		for k := range block {
 			block[k] = gutter + block[k]

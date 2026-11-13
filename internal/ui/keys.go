@@ -32,19 +32,24 @@ type keyMap struct {
 	Down     key.Binding
 	OpenChat key.Binding
 
-	Top       key.Binding
-	Bottom    key.Binding
-	HalfDown  key.Binding
-	HalfUp    key.Binding
-	NextMedia key.Binding
-	PrevMedia key.Binding
-	OpenMedia key.Binding
-	Actions   key.Binding
-	Copy      key.Binding
-	Reply     key.Binding
-	React     key.Binding
-	Edit      key.Binding
-	Unsend    key.Binding
+	Top        key.Binding
+	Bottom     key.Binding
+	HalfDown   key.Binding
+	HalfUp     key.Binding
+	PageDown   key.Binding
+	PageUp     key.Binding
+	Search     key.Binding
+	Unread     key.Binding
+	PrevUnread key.Binding
+	NextMedia  key.Binding
+	PrevMedia  key.Binding
+	OpenMedia  key.Binding
+	Actions    key.Binding
+	Copy       key.Binding
+	Reply      key.Binding
+	React      key.Binding
+	Edit       key.Binding
+	Unsend     key.Binding
 
 	Send    key.Binding
 	Newline key.Binding
@@ -93,19 +98,24 @@ func newKeyMap() keyMap {
 		Down:     key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j/↓", "down")),
 		OpenChat: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
 
-		Top:       key.NewBinding(key.WithKeys("g", "home"), key.WithHelp("g", "top")),
-		Bottom:    key.NewBinding(key.WithKeys("G", "end"), key.WithHelp("G", "bottom")),
-		HalfDown:  key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "half page down")),
-		HalfUp:    key.NewBinding(key.WithKeys("ctrl+u"), key.WithHelp("ctrl+u", "half page up")),
-		NextMedia: key.NewBinding(key.WithKeys("n", "]", "}"), key.WithHelp("n", "next media")),
-		PrevMedia: key.NewBinding(key.WithKeys("p", "[", "{"), key.WithHelp("p", "previous media")),
-		OpenMedia: key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open media")),
-		Actions:   key.NewBinding(key.WithKeys("enter", "x"), key.WithHelp("enter/x", "actions")),
-		Copy:      key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy text")),
-		Reply:     key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reply")),
-		React:     key.NewBinding(key.WithKeys("+"), key.WithHelp("+", "react")),
-		Edit:      key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit own")),
-		Unsend:    key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "unsend own")),
+		Top:        key.NewBinding(key.WithKeys("home"), key.WithHelp("gg", "top")),
+		Bottom:     key.NewBinding(key.WithKeys("G", "end"), key.WithHelp("G", "bottom")),
+		HalfDown:   key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "half page down")),
+		HalfUp:     key.NewBinding(key.WithKeys("ctrl+u"), key.WithHelp("ctrl+u", "half page up")),
+		PageDown:   key.NewBinding(key.WithKeys("ctrl+f", "pgdown"), key.WithHelp("ctrl+f", "page down")),
+		PageUp:     key.NewBinding(key.WithKeys("ctrl+b", "pgup"), key.WithHelp("ctrl+b", "page up")),
+		Unread:     key.NewBinding(key.WithKeys(), key.WithHelp("]u", "next unread chat")),
+		PrevUnread: key.NewBinding(key.WithKeys(), key.WithHelp("[u", "previous unread chat")),
+		Search:     key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search chat")),
+		NextMedia:  key.NewBinding(key.WithKeys(), key.WithHelp("]m", "next media")),
+		PrevMedia:  key.NewBinding(key.WithKeys(), key.WithHelp("[m", "previous media")),
+		OpenMedia:  key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open media")),
+		Actions:    key.NewBinding(key.WithKeys("enter", "x"), key.WithHelp("enter/x", "actions")),
+		Copy:       key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy text")),
+		Reply:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reply")),
+		React:      key.NewBinding(key.WithKeys("+"), key.WithHelp("+", "react")),
+		Edit:       key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit own")),
+		Unsend:     key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "unsend own")),
 
 		Send:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "send")),
 		Newline: key.NewBinding(key.WithKeys("alt+enter", "ctrl+j"), key.WithHelp("alt+enter", "newline")),
@@ -142,11 +152,11 @@ func (k keyMap) sections() [][]keySection {
 			{"Global", []key.Binding{k.JumpChats, k.JumpChat, k.JumpInput, k.NextPane, k.PrevPane, k.PaneLeft, k.PaneRight, k.Back, k.Compose, k.Attach, k.People, k.UnlockPIN, k.Filter, k.Help, k.Quit}},
 		},
 		{
-			{"Chats", []key.Binding{k.Up, k.Down, k.OpenChat, k.Mute}},
+			{"Chats", []key.Binding{k.Up, k.Down, k.Top, k.Bottom, k.HalfDown, k.HalfUp, k.OpenChat, k.Mute, k.Unread, k.PrevUnread}},
 			{"Compose", []key.Binding{k.Send, k.Newline, k.Editor, k.Back}},
 		},
 		{
-			{"Messages", []key.Binding{k.Down, k.Up, k.Top, k.Bottom, k.HalfDown, k.HalfUp, k.Actions, k.Reply, k.React, k.Edit, k.Unsend, k.Copy, k.NextMedia, k.PrevMedia, k.OpenMedia}},
+			{"Messages", []key.Binding{k.Down, k.Up, k.Top, k.Bottom, k.HalfDown, k.HalfUp, k.PageDown, k.PageUp, k.Search, k.Actions, k.Reply, k.React, k.Edit, k.Unsend, k.Copy, k.NextMedia, k.PrevMedia, k.OpenMedia}},
 		},
 	}
 }
@@ -195,7 +205,7 @@ func (m Model) contextBindings() []key.Binding {
 	case focusList:
 		return []key.Binding{k.OpenChat, k.Filter, k.People, k.Compose, k.NextPane, k.Help, k.Quit}
 	case focusMessages:
-		return []key.Binding{k.Actions, k.Reply, k.React, k.Copy, k.OpenMedia, k.Compose, k.Help, k.Quit}
+		return []key.Binding{k.Actions, k.Reply, k.React, k.Search, k.Copy, k.OpenMedia, k.Compose, k.Help, k.Quit}
 	default:
 		return []key.Binding{k.Send, k.Newline, k.Editor, k.Back}
 	}

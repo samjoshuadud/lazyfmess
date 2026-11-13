@@ -63,7 +63,7 @@ func TestModelLoadsThreadsAndMessages(t *testing.T) {
 		{ID: "m7", SenderID: 2, SenderName: "Dana", Text: "ping", Timestamp: now},
 		{ID: "m8", SenderID: 1, SenderName: "Pat", Text: "pong", Timestamp: now.Add(time.Minute)},
 		{ID: "m9", SenderID: 2, SenderName: "Dana", Text: "", Timestamp: now.Add(2 * time.Minute), MediaKind: "image", MediaURL: "https://example.test/a.jpg"},
-	}, 40, 1, "m9", nil, time.Time{}, nil).content
+	}, 40, 1, "m9", nil, time.Time{}, nil, nil).content
 	if !strings.Contains(rendered, "ping") || !strings.Contains(rendered, "Dana") {
 		t.Fatalf("renderMessages missing peer text: %q", rendered)
 	}

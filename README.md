@@ -123,7 +123,8 @@ The bottom bar lists the keys for the focused panel, and `?` shows all of them.
 | `i` `a` `c` | Focus the composer |
 | `A` | Send a file to the open chat |
 | `U` | Unlock encrypted history with the PIN |
-| `/` | Filter the inbox |
+| `/` | Filter the inbox, or search the open chat from the messages panel |
+| `4`-`9`, then digits | Repeat count for the next motion, such as `5j` or `12k` (`1` `2` `3` stay panel jumps) |
 
 **Chats panel**
 
@@ -132,19 +133,26 @@ The bottom bar lists the keys for the focused panel, and `?` shows all of them.
 | `j` `k` | Move through chats; moving only previews a chat |
 | `enter` | Open the chat and mark it read |
 | `m` | Mute or unmute the chat |
+| `gg` `G` | First or last chat |
+| `ctrl+d` `ctrl+u` `ctrl+f` `ctrl+b` | Move half a page or a page |
+| `]u` `[u` | Open the next or previous unread chat, from any panel |
 
 **Messages panel**
 
 | Key | Action |
 |---|---|
-| `g` `G` | First or last message |
-| `ctrl+d` `ctrl+u` | Scroll half a page |
+| `gg` `G` | First or last message |
+| `ctrl+d` `ctrl+u` `ctrl+f` `ctrl+b` | Move half a page or a page |
+| `H` `M` `L` | Top, middle, or bottom visible message |
+| `zt` `zz` `zb` | Scroll the selected message to the top, middle, or bottom |
+| `/` | Search the open chat; matches are marked with `▪` |
+| `n` `N` | Next or previous match |
 | `enter` `x` | Action menu for the selected message |
 | `e` | Edit an own message |
 | `d` | Unsend an own message, after confirmation |
 | `y` | Copy the message text (OSC 52 terminal clipboard) |
 | `o` | Open the selected media in the system viewer |
-| `n` `p` | Next or previous image or video |
+| `]m` `[m` | Next or previous image or video |
 
 **Composer**
 
@@ -173,7 +181,7 @@ The mouse wheel scrolls, and a click focuses a panel.
 <details>
 <summary>Chat behavior</summary>
 
-- Unread chats show in bold with a `●` marker, and the bottom bar counts them.
+- Unread chats show in bold with a `●` marker, and the bottom bar counts them. Opening one draws a "New messages" line before the first unread message.
 - The latest outgoing message shows "Seen" once the other person reads it, or "Seen by N" in a group.
 - The compose panel title shows who is typing. Typing in the composer sends a typing indicator.
 - Received images and videos appear as placeholders. Opening one downloads it to a temporary file, launches the desktop opener, and deletes the file once the viewer releases it or lazyfmess exits.

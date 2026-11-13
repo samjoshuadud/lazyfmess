@@ -100,6 +100,9 @@ func (m Model) renderStatusBar() string {
 	case m.syncing:
 		text = "syncing history… · " + text
 	}
+	if label := m.pending.label(); label != "" {
+		text = label + " · " + text
+	}
 	right := ansi.Truncate(text, m.width/2, "…")
 	if m.inFlight > 0 {
 		right = m.spinner.View() + " " + right

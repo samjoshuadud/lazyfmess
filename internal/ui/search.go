@@ -97,6 +97,7 @@ func (m Model) updateSearch(msg tea.Msg) (Model, tea.Cmd) {
 		m.selectedID = msg.threadID
 		m.openedID = msg.threadID
 		m.unreadSince = time.Time{}
+		m.search = ""
 		if thread, err := m.store.GetThread(m.ctx, msg.threadID); err == nil {
 			m.unreadSince = unreadSince(thread)
 		}
