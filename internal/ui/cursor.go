@@ -194,7 +194,10 @@ func editDraft(draft string) tea.Cmd {
 }
 
 func (m Model) handleMouse(msg tea.MouseMsg) (Model, tea.Cmd) {
-	inChats := msg.X < m.leftWidth
+	inChats := msg.X < m.leftWidth && !m.compact()
+	if m.compact() {
+		inChats = m.focus == focusList
+	}
 	inComposer := !inChats && msg.Y >= m.height-1-composerFrameHeight && msg.Y < m.height-1
 	switch {
 	case msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown:

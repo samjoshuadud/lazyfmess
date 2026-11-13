@@ -16,6 +16,10 @@ func (m Model) View() string {
 	if !m.ready {
 		return statusStyle.Render("loading")
 	}
+	if m.tooSmall() {
+		return lipgloss.Place(max(m.width, 1), max(m.height, 1), lipgloss.Center, lipgloss.Center,
+			statusStyle.Width(max(m.width-2, 1)).Align(lipgloss.Center).Render(fmt.Sprintf("Too small: %dx%d (min %dx%d)", m.width, m.height, minWidth, minHeight)))
+	}
 	if m.login != nil {
 		return m.renderLogin()
 	}
@@ -49,6 +53,9 @@ func (m Model) renderBase() string {
 		chats = "\n" + statusStyle.Render(placeholder)
 	}
 	left := frame(chatsTitle, m.focus == focusList, m.leftWidth, bodyH, chats)
+	if m.compact() && m.focus == focusList {
+		return left + "\n" + m.renderStatusBar()
+	}
 	messages := frame("[2] "+m.conversationTitle(), m.focus == focusMessages, m.rightWidth, bodyH-composerFrameHeight, m.viewport.View())
 	composeTitle := "[3] Compose"
 	switch {
@@ -61,8 +68,11 @@ func (m Model) renderBase() string {
 		composeTitle += " · " + label
 	}
 	composer := frame(composeTitle, m.focus == focusComposer, m.rightWidth, composerFrameHeight, m.composer.View())
-	body := lipgloss.JoinHorizontal(lipgloss.Top, left, messages+"\n"+composer)
-	return body + "\n" + m.renderStatusBar()
+	right := messages + "\n" + composer
+	if m.compact() {
+		return right + "\n" + m.renderStatusBar()
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, left, right) + "\n" + m.renderStatusBar()
 }
 
 func (m Model) conversationTitle() string {
@@ -96,7 +106,10 @@ func (m Model) renderStatusBar() string {
 	}
 	right = style.Render(right)
 	hintsW := max(m.width-lipgloss.Width(right)-2, 0)
-	hints := renderHints(m.contextBindings(), hintsW)
+	hints := ""
+	if hintsW >= 20 {
+		hints = renderHints(m.contextBindings(), hintsW)
+	}
 	gap := max(m.width-1-lipgloss.Width(hints)-lipgloss.Width(right), 1)
 	return " " + hints + strings.Repeat(" ", gap) + right
 }
@@ -112,15 +125,30 @@ func (m Model) renderHelpModal() string {
 	)
 }
 
-func (m *Model) layout() {
-	m.width = max(m.width, 40)
-	m.height = max(m.height, 12)
+const (
+	minWidth     = 40
+	minHeight    = 12
+	compactWidth = 80
+)
 
-	m.leftWidth = min(max(m.width/3, 24), 36)
-	if m.leftWidth >= m.width-20 {
-		m.leftWidth = m.width / 2
+func (m Model) tooSmall() bool {
+	return m.width < minWidth || m.height < minHeight
+}
+
+func (m Model) compact() bool {
+	return m.width < compactWidth
+}
+
+func (m *Model) layout() {
+	if m.tooSmall() {
+		return
 	}
-	m.rightWidth = m.width - m.leftWidth
+	if m.compact() {
+		m.leftWidth, m.rightWidth = m.width, m.width
+	} else {
+		m.leftWidth = min(max(m.width/3, 24), 36)
+		m.rightWidth = m.width - m.leftWidth
+	}
 
 	bodyH := m.height - 1
 	m.list.SetSize(m.leftWidth-2, bodyH-2)

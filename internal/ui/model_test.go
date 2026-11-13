@@ -406,3 +406,25 @@ func TestResizeKeepsNewestMessageVisible(t *testing.T) {
 		}
 	}
 }
+
+func TestCompactAndTinyLayouts(t *testing.T) {
+	t.Parallel()
+	m := newTestModel(t, 2, 3)
+	m = drain(t, m, tea.WindowSizeMsg{Width: 30, Height: 10})
+	if !strings.Contains(m.View(), "Too small: 30x10") {
+		t.Fatal("tiny terminals should show a notice")
+	}
+	m = drain(t, m, tea.WindowSizeMsg{Width: 60, Height: 20})
+	if v := m.View(); !strings.Contains(v, "[1] Chats") || strings.Contains(v, "[3] Compose") {
+		t.Fatal("compact mode should show only the chats panel while it has focus")
+	}
+	m = drain(t, m, keyPress("enter"))
+	if v := m.View(); strings.Contains(v, "[1] Chats") || !strings.Contains(v, "[3] Compose") {
+		t.Fatal("compact mode should switch to the chat after opening it")
+	}
+	for i, line := range strings.Split(m.View(), "\n") {
+		if w := lipgloss.Width(line); w > 60 {
+			t.Fatalf("line %d is %d wide", i, w)
+		}
+	}
+}
