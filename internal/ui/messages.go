@@ -44,7 +44,10 @@ type mediaOpenedMsg struct {
 	err error
 }
 
-const chatSidePad = 3
+const (
+	chatSidePad    = 3
+	maxBubbleWidth = 72
+)
 
 type lineSpan struct {
 	start, end int
@@ -61,7 +64,7 @@ func renderMessages(messages []store.Message, width int, selfID int64, cursorID 
 		width = 40
 	}
 	inner := max(width-chatSidePad*2, 16)
-	bubbleMax := min(max(inner*3/4, 12), inner)
+	bubbleMax := min(max(inner*3/4, 12), inner, maxBubbleWidth)
 
 	out := chatRender{spans: make(map[string]lineSpan)}
 	var rows []string
@@ -280,19 +283,15 @@ func replyName(msg store.Message, selfID int64) string {
 }
 
 func renderMessageBlock(msg store.Message, body, quote, status string, mine, showHeader bool, bubbleMax, paneWidth int) string {
+	color := senderColor(msg.SenderID, mine)
 	name := "you"
-	nameStyle := selfNameStyle
-	bodyStyle := selfBodyStyle
-	align := lipgloss.Right
 	if !mine {
 		name = msg.SenderName
 		if name == "" {
 			name = fmt.Sprintf("%d", msg.SenderID)
 		}
-		nameStyle = otherNameStyle
-		bodyStyle = otherBodyStyle
-		align = lipgloss.Left
 	}
+	bodyStyle := lipgloss.NewStyle().Foreground(text)
 	switch {
 	case msg.Unsent:
 		bodyStyle = quoteStyle
@@ -301,30 +300,41 @@ func renderMessageBlock(msg store.Message, body, quote, status string, mine, sho
 	case msg.Pending:
 		bodyStyle = pendingBodyStyle
 	}
-
-	ts := timeStyle.Render(msg.Timestamp.Local().Format("15:04"))
+	textWidth := bubbleMax - 2
 	var parts []string
 	if showHeader {
-		header := nameStyle.Render(name) + "  " + ts
-		parts = append(parts, header)
+		parts = append(parts, lipgloss.NewStyle().Foreground(color).Bold(true).Render(name)+"  "+timeStyle.Render(msg.Timestamp.Local().Format("15:04")))
 	}
 	if quote != "" {
-		parts = append(parts, quoteStyle.Render(ansi.Truncate(quote, bubbleMax, "…")))
+		parts = append(parts, quoteStyle.Render(ansi.Truncate(quote, textWidth, "…")))
 	}
-
-	for _, line := range wrapWords(body, bubbleMax) {
-		parts = append(parts, bodyStyle.Render(line))
+	for _, l := range wrapWords(body, textWidth) {
+		parts = append(parts, bodyStyle.Render(l))
 	}
 	if footer := messageFooter(msg, status); footer != "" {
-		parts = append(parts, timeStyle.Render(ansi.Truncate(footer, bubbleMax, "…")))
+		parts = append(parts, timeStyle.Render(ansi.Truncate(footer, textWidth, "…")))
 	}
-	block := strings.Join(parts, "\n")
-	return lipgloss.NewStyle().
-		Width(paneWidth - 1).
-		PaddingLeft(chatSidePad - 1).
-		PaddingRight(chatSidePad).
-		Align(align).
-		Render(block)
+	blockWidth := 0
+	for _, p := range parts {
+		blockWidth = max(blockWidth, lipgloss.Width(p))
+	}
+	bar := lipgloss.NewStyle().Foreground(color).Render("▏")
+	for i, p := range parts {
+		parts[i] = bar + " " + p + strings.Repeat(" ", blockWidth-lipgloss.Width(p))
+	}
+	style := lipgloss.NewStyle().Width(paneWidth - 1).PaddingLeft(chatSidePad - 1).PaddingRight(chatSidePad)
+	if mine {
+		style = style.Align(lipgloss.Right)
+	}
+	return style.Render(strings.Join(parts, "\n"))
+}
+
+func senderColor(senderID int64, mine bool) lipgloss.TerminalColor {
+	if mine {
+		return accent
+	}
+	palette := senderPalette()
+	return palette[uint64(senderID)%uint64(len(palette))]
 }
 
 func wrapWords(s string, width int) []string {

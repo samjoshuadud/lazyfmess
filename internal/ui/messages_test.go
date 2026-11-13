@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"lazyfmess/internal/store"
 )
@@ -132,5 +133,25 @@ func TestWrapWords(t *testing.T) {
 				t.Errorf("%s: line %q wider than %d", tt.name, line, tt.width)
 			}
 		}
+	}
+}
+
+func TestOwnBlockIsAlignedAsAWhole(t *testing.T) {
+	t.Parallel()
+	msgs := []store.Message{{ID: "a", SenderID: 1, Text: "a long message that wraps across several lines in the pane", Timestamp: time.UnixMilli(1)}}
+	out := renderMessages(msgs, 60, 1, "", nil, nil).content
+	col := -1
+	for _, line := range strings.Split(ansi.Strip(out), "\n") {
+		i := strings.Index(line, "▏")
+		if i < 0 {
+			continue
+		}
+		if col >= 0 && i != col {
+			t.Fatalf("bar moved from column %d to %d:\n%s", col, i, ansi.Strip(out))
+		}
+		col = i
+	}
+	if col <= 0 {
+		t.Fatalf("own message should be right-aligned with a bar:\n%s", ansi.Strip(out))
 	}
 }

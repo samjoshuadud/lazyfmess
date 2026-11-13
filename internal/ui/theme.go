@@ -49,24 +49,16 @@ var (
 
 	timeStyle = lipgloss.NewStyle().Foreground(muted)
 
-	selfNameStyle = lipgloss.NewStyle().
-			Foreground(accent).
-			Bold(true)
-
-	otherNameStyle = lipgloss.NewStyle().
-			Foreground(text).
-			Bold(true)
-
-	selfBodyStyle = lipgloss.NewStyle().Foreground(text)
-
-	otherBodyStyle = lipgloss.NewStyle().Foreground(text)
-
 	pendingBodyStyle = lipgloss.NewStyle().Foreground(muted)
 
 	errorBodyStyle = lipgloss.NewStyle().Foreground(danger)
 
 	quoteStyle = lipgloss.NewStyle().Foreground(muted).Italic(true)
 )
+
+func senderPalette() []lipgloss.Color {
+	return []lipgloss.Color{"114", "180", "176", "110", "216", "151"}
+}
 
 func newThreadList() list.Model {
 	threads := list.New(nil, threadDelegate{}, 0, 0)
