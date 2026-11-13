@@ -55,7 +55,7 @@ type chatRender struct {
 	order   []string
 }
 
-func renderMessages(messages []store.Message, width int, selfID int64, cursorID string, readMarks []time.Time) chatRender {
+func renderMessages(messages []store.Message, width int, selfID int64, cursorID string, readMarks []time.Time, cache map[string]string) chatRender {
 	if width <= 0 {
 		width = 40
 	}
@@ -90,16 +90,23 @@ func renderMessages(messages []store.Message, width int, selfID int64, cursorID 
 		if msg.ID == seenID {
 			status = seen
 		}
-		var block []string
-		if msg.System {
-			if !first && !showHeader {
-				rows = append(rows, "")
-			}
-			block = []string{systemLine(msg, selfID, width)}
-			showHeader = true
-		} else {
-			block = strings.Split(renderMessageBlock(msg, body, replyQuote(msg, selfID), status, mine, showHeader, bubbleMax, width), "\n")
+		if msg.System && !first && !showHeader {
+			rows = append(rows, "")
 		}
+		quote := replyQuote(msg, selfID)
+		key := blockKey(msg, body, quote, status, mine, showHeader, width)
+		rendered, ok := cache[key]
+		if !ok {
+			if msg.System {
+				rendered = systemLine(msg, selfID, width)
+			} else {
+				rendered = renderMessageBlock(msg, body, quote, status, mine, showHeader, bubbleMax, width)
+			}
+			if cache != nil {
+				cache[key] = rendered
+			}
+		}
+		block := strings.Split(rendered, "\n")
 		gutter := " "
 		if msg.ID == cursorID {
 			gutter = focusMark.Render("▌")
@@ -146,6 +153,22 @@ func seenStatus(messages []store.Message, selfID int64, readMarks []time.Time) (
 		}
 	}
 	return "", ""
+}
+
+func blockKey(msg store.Message, body, quote, status string, mine, header bool, width int) string {
+	return fmt.Sprintf("%s\x00%d\x00%t%t%t%t%t%t\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%d",
+		msg.ID, width, mine, header, msg.Pending, msg.Edited, msg.Unsent, msg.System,
+		body, quote, status, msg.SenderName, msg.Error, reactionSummary(msg.Reactions), msg.Timestamp.UnixMilli())
+}
+
+func messageOrder(messages []store.Message) []string {
+	order := make([]string, 0, len(messages))
+	for _, msg := range messages {
+		if messageBody(msg) != "" {
+			order = append(order, msg.ID)
+		}
+	}
+	return order
 }
 
 func systemLine(msg store.Message, selfID int64, width int) string {

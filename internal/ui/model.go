@@ -146,6 +146,7 @@ type Model struct {
 	rightWidth     int
 	messages       []store.Message
 	readMarks      []time.Time
+	blocks         map[string]string
 }
 
 type readMark struct {
@@ -212,6 +213,7 @@ func New(ctx context.Context, s *store.Store, svc Services, cfg Config) Model {
 		typing:         make(map[int64]map[int64]time.Time),
 		backgroundSync: cfg.BackgroundSync,
 		historyLoading: make(map[int64]bool),
+		blocks:         make(map[string]string),
 		prefillPIN:     strings.TrimSpace(cfg.PrefillPIN),
 		ctx:            ctx,
 		keys:           newKeyMap(),
@@ -445,7 +447,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loadedID = msg.threadID
 		m.messages = msg.messages
 		m.readMarks = msg.readMarks
-		m.refreshViewport()
+		m.order = messageOrder(m.messages)
 		m.placeCursor(newThread || cursorAtEnd)
 		m.refreshViewport()
 		if follow {
