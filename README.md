@@ -203,7 +203,7 @@ The default is `os.UserConfigDir()/lazyfmess`, which is `$XDG_CONFIG_HOME/lazyfm
 | `device.db` | End-to-end encryption device keys |
 | `history-device.json` | Enrolled encrypted history device |
 | `messages.db` | Local cache of chats and messages (SQLite, WAL mode) |
-| `lazyfmess.log` | Protocol logs |
+| `lazyfmess.log` | Protocol logs; moved to `lazyfmess.log.1` at startup once over 10 MB |
 
 These files grant access to the account. Keep them private and never commit or share them.
 

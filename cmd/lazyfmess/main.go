@@ -198,8 +198,31 @@ func summarizeSyncErrors(err error) error {
 	return fmt.Errorf("%d problems during history sync, details in lazyfmess.log", len(errs))
 }
 
+const maxLogBytes = 10 << 20
+
+func rotateLog(path string, limit int64) error {
+	info, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("check log file: %w", err)
+	}
+	if info.Size() <= limit {
+		return nil
+	}
+	if err := os.Rename(path, path+".1"); err != nil {
+		return fmt.Errorf("rotate log file: %w", err)
+	}
+	return nil
+}
+
 func setupLogging(dir string, verbose bool) (io.Closer, io.Writer, error) {
-	f, err := os.OpenFile(filepath.Join(dir, "lazyfmess.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	path := filepath.Join(dir, "lazyfmess.log")
+	if err := rotateLog(path, maxLogBytes); err != nil {
+		return nil, nil, err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open log file: %w", err)
 	}
