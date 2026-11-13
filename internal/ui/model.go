@@ -102,6 +102,8 @@ type Model struct {
 	backgroundSync func(context.Context) error
 	syncing        bool
 	syncStarted    bool
+	syncDone       int
+	syncTotal      int
 	threadsLoaded  bool
 	historyLoading map[int64]bool
 	prefillPIN     string
@@ -162,6 +164,11 @@ type refreshNowMsg struct{}
 type unlockCheckMsg struct {
 	needs bool
 	err   error
+}
+
+type syncProgressMsg struct {
+	done  int
+	total int
 }
 
 type backgroundSyncMsg struct {
@@ -322,6 +329,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.reload()
+	case syncProgressMsg:
+		m.syncDone, m.syncTotal = msg.done, msg.total
+		return m, nil
 	case backgroundSyncMsg:
 		m.syncing = false
 		m.refreshViewport()
@@ -996,6 +1006,13 @@ func (a *App) NeedLogin(reason string) {
 		return
 	}
 	a.program.Send(needLoginMsg{reason: reason})
+}
+
+func (a *App) SyncProgress(done, total int) {
+	if a == nil || a.program == nil {
+		return
+	}
+	a.program.Send(syncProgressMsg{done: done, total: total})
 }
 
 func (a *App) Connected(err error) {

@@ -174,10 +174,31 @@ func connect(ctx context.Context, client *meta.Client, db *store.Store) error {
 func syncHistoryBackground(ctx context.Context, client *meta.Client, db *store.Store, app *ui.App) error {
 	inboxErr := client.SyncInboxThreads(ctx, db)
 	app.Notify()
-	if !client.HasHistoryDevice() {
-		return inboxErr
+	var historyErr error
+	if client.HasHistoryDevice() {
+		historyErr = client.SyncAllEncryptedHistory(ctx, db, func(done, total int) {
+			app.SyncProgress(done, total)
+			app.Notify()
+		})
 	}
-	return errors.Join(inboxErr, client.SyncAllEncryptedHistory(ctx, db))
+	return summarizeSyncErrors(errors.Join(inboxErr, historyErr))
+}
+
+func summarizeSyncErrors(err error) error {
+	if err == nil {
+		return nil
+	}
+	errs := []error{err}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		errs = joined.Unwrap()
+	}
+	for _, e := range errs {
+		log.Error().Err(e).Msg("history sync")
+	}
+	if len(errs) == 1 {
+		return errs[0]
+	}
+	return fmt.Errorf("%d problems during history sync, details in lazyfmess.log", len(errs))
 }
 
 func setupLogging(dir string, verbose bool) (io.Closer, io.Writer, error) {

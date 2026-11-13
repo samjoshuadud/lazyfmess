@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strconv"
 	"time"
 
 	"go.mau.fi/mautrix-meta/pkg/messagix/securehistory"
@@ -23,11 +22,10 @@ import (
 )
 
 const (
-	historyPageSize   = 50
-	historyMaxPages   = 20
-	threadBatchDelay  = 2 * time.Second
-	threadBatchLimit  = 40
-	encryptedMaxPages = 10
+	historyPageSize  = 50
+	historyMaxPages  = 20
+	threadBatchDelay = 2 * time.Second
+	threadBatchLimit = 40
 )
 
 func (c *Client) loadHistoryDevice() error {
@@ -169,13 +167,17 @@ func (c *Client) SyncThreadHistory(ctx context.Context, s *store.Store, thread s
 	if c == nil || s == nil || thread.ID == 0 {
 		return nil
 	}
-	if table.ThreadType(thread.ThreadType).IsWhatsApp() {
-		return c.syncEncryptedThread(ctx, s, thread)
+	if !table.ThreadType(thread.ThreadType).IsWhatsApp() {
+		return c.syncSocketThread(ctx, s, thread)
 	}
-	return c.syncSocketThread(ctx, s, thread)
+	if !c.HasHistoryDevice() {
+		return nil
+	}
+	res, err := syncHistory(ctx, s, thread, c.encryptedPages(thread), historyPagesPerChat, historyPageDelay)
+	return historyError(thread, res, err)
 }
 
-func (c *Client) SyncAllEncryptedHistory(ctx context.Context, s *store.Store) error {
+func (c *Client) SyncAllEncryptedHistory(ctx context.Context, s *store.Store, progress func(done, total int)) error {
 	if err := c.waitReady(ctx); err != nil {
 		return err
 	}
@@ -183,70 +185,53 @@ func (c *Client) SyncAllEncryptedHistory(ctx context.Context, s *store.Store) er
 	if err != nil {
 		return err
 	}
-	for _, thread := range threads {
-		if !table.ThreadType(thread.ThreadType).IsWhatsApp() {
-			continue
+	var encrypted []store.Thread
+	for _, t := range threads {
+		if table.ThreadType(t.ThreadType).IsWhatsApp() {
+			encrypted = append(encrypted, t)
 		}
+	}
+	var errs []error
+	remaining := historyPagesPerRun
+	for i, thread := range encrypted {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if err := c.syncEncryptedThread(ctx, s, thread); err != nil {
-			return err
+		if progress != nil {
+			progress(i, len(encrypted))
+		}
+		if remaining <= 0 || !c.HasHistoryDevice() {
+			break
+		}
+		res, err := syncHistory(ctx, s, thread, c.encryptedPages(thread), min(historyPagesPerChat, remaining), historyPageDelay)
+		remaining -= res.pages
+		if err := historyError(thread, res, err); err != nil {
+			errs = append(errs, err)
 		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(time.Second):
+		case <-time.After(historyPageDelay):
 		}
 	}
-	return nil
+	if progress != nil {
+		progress(len(encrypted), len(encrypted))
+	}
+	return errors.Join(errs...)
 }
 
-func (c *Client) syncEncryptedThread(ctx context.Context, s *store.Store, thread store.Thread) error {
-	device := c.HistoryDevice()
-	if device == nil || device.ID == "" {
+func historyError(thread store.Thread, res historyResult, err error) error {
+	var errs []error
+	if err != nil {
+		errs = append(errs, err)
+	}
+	if res.failed > 0 {
+		errs = append(errs, fmt.Errorf("%d messages could not be decrypted", res.failed))
+	}
+	if len(errs) == 0 {
 		return nil
 	}
-	threadID := strconv.FormatInt(thread.ID, 10)
-	timestamp := time.Now().Add(time.Minute).UnixMilli()
-	isGroup := table.ThreadType(thread.ThreadType) == table.ENCRYPTED_OVER_WA_GROUP
-	for page := 0; page < encryptedMaxPages; page++ {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		rangeResp, err := c.mx.GetSecureHistoryClient().FetchMessages(ctx, device, threadID, true, timestamp, historyPageSize)
-		if err != nil {
-			return fmt.Errorf("fetch encrypted history %d: %w", thread.ID, err)
-		}
-		if rangeResp.Epochs != nil && len(rangeResp.Epochs.Edges) > 0 {
-			updated, err := device.WithEpochs(rangeResp.Epochs)
-			if err != nil {
-				return fmt.Errorf("apply history epochs: %w", err)
-			}
-			if err := c.saveHistoryDevice(updated); err != nil {
-				return err
-			}
-			device = updated
-		}
-		messages, err := rangeResp.Decrypt(device, threadID, c.AccountID(), isGroup)
-		if err != nil {
-			return fmt.Errorf("decrypt encrypted history %d: %w", thread.ID, err)
-		}
-		if err := s.InTx(ctx, func(s *store.Store) error {
-			return storeArchivePage(ctx, s, thread, messages)
-		}); err != nil {
-			return err
-		}
-		if rangeResp.Range == nil || rangeResp.Range.HasMoreBefore == nil || !*rangeResp.Range.HasMoreBefore {
-			return nil
-		}
-		next := rangeResp.Range.Before
-		if next >= timestamp {
-			return nil
-		}
-		timestamp = next
-	}
-	return nil
+	return fmt.Errorf("chat %d (%s): %w", thread.ID, thread.Title, errors.Join(errs...))
 }
 
 func (c *Client) syncSocketThread(ctx context.Context, s *store.Store, thread store.Thread) error {
@@ -299,43 +284,6 @@ func (c *Client) syncSocketThread(ctx context.Context, s *store.Store, thread st
 		}
 	}
 	return nil
-}
-
-func storeArchivePage(ctx context.Context, s *store.Store, thread store.Thread, messages []*securehistory.DecryptedMessage) error {
-	var newestPreview string
-	var newestTS time.Time
-	for _, msg := range messages {
-		plain, ok := archivePlainMessage(msg)
-		if !ok {
-			continue
-		}
-		if err := s.EnsureThread(ctx, thread.ID); err != nil {
-			return err
-		}
-		if err := s.UpsertMessage(ctx, store.Message{
-			ID:        plain.ID,
-			ThreadID:  thread.ID,
-			SenderID:  plain.SenderID,
-			Text:      plain.Text,
-			Timestamp: time.UnixMilli(plain.TimestampMS),
-		}); err != nil {
-			return err
-		}
-		if plain.TimestampMS >= newestTS.UnixMilli() {
-			newestTS = time.UnixMilli(plain.TimestampMS)
-			newestPreview = plain.Text
-		}
-	}
-	if newestPreview == "" {
-		return nil
-	}
-	return s.UpsertThread(ctx, store.Thread{
-		ID:          thread.ID,
-		Title:       thread.Title,
-		LastPreview: newestPreview,
-		ThreadType:  thread.ThreadType,
-		UpdatedAt:   newestTS,
-	})
 }
 
 type plainArchiveMessage struct {

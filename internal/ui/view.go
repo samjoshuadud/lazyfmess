@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -84,6 +85,8 @@ func (m Model) renderStatusBar() string {
 	switch {
 	case m.connecting:
 		text = "connecting to Messenger… · " + text
+	case m.syncing && m.syncTotal > 0:
+		text = fmt.Sprintf("syncing history %d/%d · %s", m.syncDone, m.syncTotal, text)
 	case m.syncing:
 		text = "syncing history… · " + text
 	}
