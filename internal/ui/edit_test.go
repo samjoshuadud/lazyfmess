@@ -86,3 +86,17 @@ func TestCannotEditOthersMessages(t *testing.T) {
 		t.Fatalf("edit or unsend allowed on another person's message: editing %q popup %+v", m.editing.ID, m.popup)
 	}
 }
+
+func TestEscCancelsEdit(t *testing.T) {
+	t.Parallel()
+	m := modelWithOwnMessage(t)
+	m = drain(t, m, keyPress("e"))
+	m = drain(t, m, keyPress("esc"))
+	if m.editing.ID != "" || m.composer.Value() != "" || m.focus != focusComposer {
+		t.Fatalf("first esc should cancel the edit: editing %q composer %q focus %v", m.editing.ID, m.composer.Value(), m.focus)
+	}
+	m = drain(t, m, keyPress("esc"))
+	if m.focus != focusList {
+		t.Fatalf("second esc should leave the composer: %v", m.focus)
+	}
+}

@@ -151,6 +151,8 @@ type Model struct {
 	loads          *atomic.Int64
 	lastLoad       int64
 	resizeGen      int
+	settledGen     int
+	pinBottom      bool
 	moreAbove      bool
 	anchorID       string
 	anchorOffset   int
@@ -314,6 +316,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 	case tea.WindowSizeMsg:
+		if m.ready && m.resizeGen == m.settledGen {
+			m.pinBottom = m.viewport.AtBottom()
+		}
 		m.width = msg.Width
 		m.height = msg.Height
 		m.layout()
@@ -326,8 +331,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		gen := m.resizeGen
 		return m, tea.Tick(resizeDelay, func(time.Time) tea.Msg { return resizeDoneMsg{gen: gen} })
 	case resizeDoneMsg:
-		if msg.gen == m.resizeGen {
-			m.refreshViewport()
+		if msg.gen != m.resizeGen {
+			return m, nil
+		}
+		m.settledGen = msg.gen
+		m.refreshViewport()
+		if m.pinBottom {
+			m.viewport.GotoBottom()
+		} else if m.cursorID != "" {
+			m.setCursor(m.cursorID)
 		}
 		return m, nil
 	case needLoginMsg:
@@ -613,11 +625,11 @@ func (m Model) updateMain(msg tea.Msg) (Model, tea.Cmd) {
 	case key.Matches(k, keys.Back) && m.focus == focusComposer && m.replyTo.ID != "":
 		m.replyTo = store.Message{}
 		return m, nil
-	case key.Matches(k, keys.Back) && m.focus != focusList:
-		m.setFocus(focusList)
-		return m, nil
 	case key.Matches(k, keys.Back) && m.focus == focusComposer && m.editing.ID != "":
 		m.cancelEdit()
+		return m, nil
+	case key.Matches(k, keys.Back) && m.focus != focusList:
+		m.setFocus(focusList)
 		return m, nil
 	case m.focus == focusComposer:
 		if key.Matches(k, keys.Send) && m.editing.ID != "" {

@@ -392,3 +392,17 @@ func TestAppQueuesWithoutBlocking(t *testing.T) {
 	close(a.done)
 	a.Error("boom")
 }
+
+func TestResizeKeepsNewestMessageVisible(t *testing.T) {
+	t.Parallel()
+	m := newTestModel(t, 1, 40)
+	if !m.viewport.AtBottom() {
+		t.Fatal("expected to start at the bottom")
+	}
+	for _, size := range []tea.WindowSizeMsg{{Width: 60, Height: 16}, {Width: 160, Height: 40}, {Width: 70, Height: 20}} {
+		m = drain(t, m, size)
+		if !m.viewport.AtBottom() {
+			t.Fatalf("after resize to %dx%d the newest message is out of view", size.Width, size.Height)
+		}
+	}
+}
