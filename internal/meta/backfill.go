@@ -22,10 +22,11 @@ const (
 var errNoHistoryDevice = errors.New("encrypted history is locked")
 
 type historyPage struct {
-	messages []store.Message
-	before   int64
-	more     bool
-	failed   int
+	messages  []store.Message
+	reactions []store.Reaction
+	before    int64
+	more      bool
+	failed    int
 }
 
 type pageFetcher func(ctx context.Context, before int64) (historyPage, error)
@@ -60,7 +61,7 @@ func syncHistory(ctx context.Context, s *store.Store, thread store.Thread, fetch
 		}
 		res.pages++
 		res.failed += p.failed
-		return p, storeHistoryPage(ctx, s, thread, p.messages)
+		return p, storeHistoryPage(ctx, s, thread, p.messages, p.reactions)
 	}
 	if found && have {
 		before := now
@@ -109,7 +110,7 @@ func oldestMS(messages []store.Message) int64 {
 	return oldest
 }
 
-func storeHistoryPage(ctx context.Context, s *store.Store, thread store.Thread, messages []store.Message) error {
+func storeHistoryPage(ctx context.Context, s *store.Store, thread store.Thread, messages []store.Message, reactions []store.Reaction) error {
 	if len(messages) == 0 {
 		return nil
 	}
@@ -126,9 +127,14 @@ func storeHistoryPage(ctx context.Context, s *store.Store, thread store.Thread, 
 				newest = m
 			}
 		}
+		for _, r := range reactions {
+			if err := s.SetReaction(ctx, r); err != nil {
+				return err
+			}
+		}
 		return s.UpsertThread(ctx, store.Thread{
 			ID:          thread.ID,
-			LastPreview: newest.Text,
+			LastPreview: previewOf(newest),
 			ThreadType:  thread.ThreadType,
 			UpdatedAt:   newest.Timestamp,
 		})
@@ -167,14 +173,9 @@ func (c *Client) encryptedPages(thread store.Thread) pageFetcher {
 			page.more = r.Range.HasMoreBefore != nil && *r.Range.HasMoreBefore
 		}
 		for _, d := range decrypted {
-			if plain, ok := archivePlainMessage(d); ok {
-				page.messages = append(page.messages, store.Message{
-					ID:        plain.ID,
-					ThreadID:  thread.ID,
-					SenderID:  plain.SenderID,
-					Text:      plain.Text,
-					Timestamp: time.UnixMilli(plain.TimestampMS),
-				})
+			if archived, ok := decodeArchived(d, thread.ID); ok {
+				page.messages = append(page.messages, archived.message)
+				page.reactions = append(page.reactions, archived.reactions...)
 			}
 		}
 		return page, nil

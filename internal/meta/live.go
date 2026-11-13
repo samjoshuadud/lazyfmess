@@ -69,7 +69,7 @@ func decodeLiveMessage(evt *events.FBMessage) (liveMessage, bool) {
 	if !ok {
 		return liveMessage{}, false
 	}
-	text, ok := consumerText(consumer)
+	content, ok := decodeContent(consumer.GetPayload().GetContent())
 	if !ok {
 		return liveMessage{}, false
 	}
@@ -90,7 +90,9 @@ func decodeLiveMessage(evt *events.FBMessage) (liveMessage, bool) {
 			ID:        evt.Info.ID,
 			ThreadID:  threadID,
 			SenderID:  senderID,
-			Text:      text,
+			Text:      content.text,
+			MediaKind: content.mediaKind,
+			MediaName: content.mediaName,
 			Timestamp: evt.Info.Timestamp,
 			ReplyToID: evt.FBApplication.GetMetadata().GetQuotedMessage().GetStanzaID(),
 		},
@@ -136,7 +138,7 @@ func applyLiveMessage(ctx context.Context, s *store.Store, live liveMessage) err
 	msg := live.message
 	if err := s.UpsertThread(ctx, store.Thread{
 		ID:          msg.ThreadID,
-		LastPreview: msg.Text,
+		LastPreview: previewOf(msg),
 		ThreadType:  int64(live.threadType),
 		UpdatedAt:   msg.Timestamp,
 	}); err != nil {

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -31,5 +32,22 @@ func TestSeenStatus(t *testing.T) {
 		if id != tt.wantID || label != tt.wantLabel {
 			t.Errorf("%s: got (%q, %q) want (%q, %q)", tt.name, id, label, tt.wantID, tt.wantLabel)
 		}
+	}
+}
+
+func TestSystemMessageLine(t *testing.T) {
+	t.Parallel()
+	base := time.UnixMilli(1_700_000_000_000)
+	msgs := []store.Message{
+		{ID: "a", SenderID: 2, SenderName: "Dana", Text: "hello", Timestamp: base},
+		{ID: "b", SenderID: 1, Text: "named the group Hikers", System: true, Timestamp: base.Add(time.Minute)},
+		{ID: "c", SenderID: 2, SenderName: "Dana", Text: "nice", Timestamp: base.Add(2 * time.Minute)},
+	}
+	out := renderMessages(msgs, 60, 1, "", nil).content
+	if !strings.Contains(out, "You named the group Hikers") {
+		t.Fatalf("system line missing:\n%s", out)
+	}
+	if strings.Count(out, "Dana") != 2 {
+		t.Fatalf("a system line should start a new sender group:\n%s", out)
 	}
 }

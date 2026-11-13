@@ -10,12 +10,6 @@ import (
 	"go.mau.fi/mautrix-meta/pkg/messagix/securehistory"
 	"go.mau.fi/mautrix-meta/pkg/messagix/socket"
 	"go.mau.fi/mautrix-meta/pkg/messagix/table"
-	"go.mau.fi/mautrix-meta/pkg/metaid"
-	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/proto/waArmadilloBackupMessage"
-	"go.mau.fi/whatsmeow/proto/waConsumerApplication"
-	"go.mau.fi/whatsmeow/proto/waMsgApplication"
-	"google.golang.org/protobuf/proto"
 
 	"lazyfmess/internal/session"
 	"lazyfmess/internal/store"
@@ -284,95 +278,4 @@ func (c *Client) syncSocketThread(ctx context.Context, s *store.Store, thread st
 		}
 	}
 	return nil
-}
-
-type plainArchiveMessage struct {
-	ID          string
-	SenderID    int64
-	Text        string
-	TimestampMS int64
-}
-
-func archivePlainMessage(msg *securehistory.DecryptedMessage) (plainArchiveMessage, bool) {
-	if msg == nil || msg.Message == nil || msg.Message.Message == nil {
-		return plainArchiveMessage{}, false
-	}
-	meta := msg.Message.Message.GetMetadata()
-	if meta == nil || meta.GetMessageID() == "" || meta.GetSenderID() == "" {
-		return plainArchiveMessage{}, false
-	}
-	senderID, err := metaid.ParseIDFromString(meta.GetSenderID())
-	if err != nil {
-		return plainArchiveMessage{}, false
-	}
-	text, ok := archiveMessageText(msg.Message.Message)
-	if !ok {
-		return plainArchiveMessage{}, false
-	}
-	return plainArchiveMessage{
-		ID:          meta.GetMessageID(),
-		SenderID:    senderID,
-		Text:        text,
-		TimestampMS: msg.Message.TimestampMS,
-	}, true
-}
-
-func archiveMessageText(message *waArmadilloBackupMessage.BackupMessage) (string, bool) {
-	payload, ok := message.GetPayload().(*waArmadilloBackupMessage.BackupMessage_EncryptedTransportMessage)
-	if !ok {
-		return "", false
-	}
-	var application waMsgApplication.MessageApplication
-	if err := proto.Unmarshal(payload.EncryptedTransportMessage, &application); err != nil {
-		return "", false
-	}
-	decoded, err := whatsmeow.DecodeFBApplication(&application)
-	if err != nil {
-		return "", false
-	}
-	return consumerText(decoded.GetConsumerApplication())
-}
-
-func consumerText(msg *waConsumerApplication.ConsumerApplication) (string, bool) {
-	if msg == nil || msg.GetPayload() == nil {
-		return "", false
-	}
-	content := msg.GetPayload().GetContent()
-	if content == nil {
-		return "", false
-	}
-	switch typed := content.GetContent().(type) {
-	case *waConsumerApplication.ConsumerApplication_Content_MessageText:
-		if typed.MessageText == nil {
-			return "", false
-		}
-		text := typed.MessageText.GetText()
-		return text, text != ""
-	case *waConsumerApplication.ConsumerApplication_Content_ExtendedTextMessage:
-		if typed.ExtendedTextMessage == nil || typed.ExtendedTextMessage.GetText() == nil {
-			return "", false
-		}
-		text := typed.ExtendedTextMessage.GetText().GetText()
-		return text, text != ""
-	case *waConsumerApplication.ConsumerApplication_Content_ImageMessage:
-		if typed.ImageMessage != nil && typed.ImageMessage.GetCaption() != nil {
-			if text := typed.ImageMessage.GetCaption().GetText(); text != "" {
-				return text, true
-			}
-		}
-		return "[image]", true
-	case *waConsumerApplication.ConsumerApplication_Content_VideoMessage:
-		if typed.VideoMessage != nil && typed.VideoMessage.GetCaption() != nil {
-			if text := typed.VideoMessage.GetCaption().GetText(); text != "" {
-				return text, true
-			}
-		}
-		return "[video]", true
-	case *waConsumerApplication.ConsumerApplication_Content_StickerMessage:
-		return "[sticker]", true
-	case *waConsumerApplication.ConsumerApplication_Content_AudioMessage:
-		return "[audio]", true
-	default:
-		return "", false
-	}
 }

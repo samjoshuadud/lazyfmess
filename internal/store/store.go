@@ -52,6 +52,7 @@ type Message struct {
 	ReplySenderName string
 	Edited          bool
 	Unsent          bool
+	System          bool
 	Reactions       []Reaction
 }
 
@@ -195,6 +196,7 @@ CREATE INDEX IF NOT EXISTS messages_thread_ts ON messages(thread_id, timestamp_m
 		`ALTER TABLE messages ADD COLUMN reply_sender_id INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE messages ADD COLUMN edited INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE messages ADD COLUMN unsent INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE messages ADD COLUMN system INTEGER NOT NULL DEFAULT 0`,
 	} {
 		if _, err := s.q.ExecContext(ctx, stmt); err != nil {
 			if !isDuplicateColumn(err) {
@@ -344,15 +346,16 @@ func (s *Store) UpsertMessage(ctx context.Context, m Message) error {
 INSERT INTO messages (
 	id, thread_id, sender_id, text, timestamp_ms, pending, error,
 	media_kind, media_url, media_mime, media_name, media_duration_ms,
-	reply_to_id, reply_text, reply_sender_id, edited, unsent
+	reply_to_id, reply_text, reply_sender_id, edited, unsent, system
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	thread_id=excluded.thread_id,
 	sender_id=excluded.sender_id,
 	text=CASE WHEN messages.unsent = 1 OR excluded.unsent = 1 THEN '' ELSE excluded.text END,
 	edited=MAX(messages.edited, excluded.edited),
 	unsent=MAX(messages.unsent, excluded.unsent),
+	system=excluded.system,
 	timestamp_ms=excluded.timestamp_ms,
 	pending=excluded.pending,
 	error=excluded.error,
@@ -366,7 +369,7 @@ ON CONFLICT(id) DO UPDATE SET
 	reply_sender_id=CASE WHEN excluded.reply_sender_id = 0 THEN messages.reply_sender_id ELSE excluded.reply_sender_id END
 `, m.ID, m.ThreadID, m.SenderID, m.Text, m.Timestamp.UnixMilli(), boolInt(m.Pending), m.Error,
 		m.MediaKind, m.MediaURL, m.MediaMime, m.MediaName, m.MediaDurationMs,
-		m.ReplyToID, m.ReplyText, m.ReplySenderID, boolInt(m.Edited), boolInt(m.Unsent))
+		m.ReplyToID, m.ReplyText, m.ReplySenderID, boolInt(m.Edited), boolInt(m.Unsent), boolInt(m.System))
 	if err != nil {
 		return fmt.Errorf("upsert message: %w", err)
 	}
@@ -426,7 +429,7 @@ SELECT m.id, m.thread_id, m.sender_id, COALESCE(c.name, ''), m.text, m.timestamp
 	m.reply_to_id,
 	CASE WHEN m.reply_text != '' THEN m.reply_text ELSE COALESCE(r.text, '') END,
 	CASE WHEN m.reply_sender_id != 0 THEN m.reply_sender_id ELSE COALESCE(r.sender_id, 0) END,
-	COALESCE(rc.name, ''), m.edited, m.unsent
+	COALESCE(rc.name, ''), m.edited, m.unsent, m.system
 FROM messages m
 LEFT JOIN contacts c ON c.id = m.sender_id
 LEFT JOIN messages r ON m.reply_to_id != '' AND r.id = m.reply_to_id
@@ -446,7 +449,7 @@ ORDER BY m.timestamp_ms ASC, m.id ASC
 		if err := rows.Scan(
 			&m.ID, &m.ThreadID, &m.SenderID, &m.SenderName, &m.Text, &ms, &pending, &m.Error,
 			&m.MediaKind, &m.MediaURL, &m.MediaMime, &m.MediaName, &m.MediaDurationMs,
-			&m.ReplyToID, &m.ReplyText, &m.ReplySenderID, &m.ReplySenderName, &m.Edited, &m.Unsent,
+			&m.ReplyToID, &m.ReplyText, &m.ReplySenderID, &m.ReplySenderName, &m.Edited, &m.Unsent, &m.System,
 		); err != nil {
 			return nil, fmt.Errorf("scan message: %w", err)
 		}

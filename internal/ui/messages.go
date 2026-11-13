@@ -90,7 +90,16 @@ func renderMessages(messages []store.Message, width int, selfID int64, cursorID 
 		if msg.ID == seenID {
 			status = seen
 		}
-		block := strings.Split(renderMessageBlock(msg, body, replyQuote(msg, selfID), status, mine, showHeader, bubbleMax, width), "\n")
+		var block []string
+		if msg.System {
+			if !first && !showHeader {
+				rows = append(rows, "")
+			}
+			block = []string{systemLine(msg, selfID, width)}
+			showHeader = true
+		} else {
+			block = strings.Split(renderMessageBlock(msg, body, replyQuote(msg, selfID), status, mine, showHeader, bubbleMax, width), "\n")
+		}
 		gutter := " "
 		if msg.ID == cursorID {
 			gutter = focusMark.Render("▌")
@@ -102,6 +111,9 @@ func renderMessages(messages []store.Message, width int, selfID int64, cursorID 
 		out.order = append(out.order, msg.ID)
 		rows = append(rows, block...)
 		prevSender = msg.SenderID
+		if msg.System {
+			prevSender = 0
+		}
 		prevTime = msg.Timestamp
 	}
 	if len(out.order) == 0 {
@@ -134,6 +146,15 @@ func seenStatus(messages []store.Message, selfID int64, readMarks []time.Time) (
 		}
 	}
 	return "", ""
+}
+
+func systemLine(msg store.Message, selfID int64, width int) string {
+	who := replyName(msg, selfID)
+	if who == "you" {
+		who = "You"
+	}
+	text := ansi.Truncate(who+" "+msg.Text+" · "+msg.Timestamp.Local().Format("15:04"), width-2, "…")
+	return lipgloss.PlaceHorizontal(width-1, lipgloss.Center, quoteStyle.Render(text))
 }
 
 func chatPlaceholder(text string, width int) string {
