@@ -196,7 +196,30 @@ CREATE INDEX IF NOT EXISTS messages_thread_ts ON messages(thread_id, timestamp_m
 			}
 		}
 	}
+	if _, err := s.q.ExecContext(ctx, `
+UPDATE threads SET
+	updated_at_ms = newest.ts,
+	last_preview = CASE
+		WHEN newest.text != '' THEN newest.text
+		WHEN newest.media_kind != '' THEN '[' || newest.media_kind || ']'
+		ELSE threads.last_preview
+	END
+FROM (
+	SELECT thread_id, text, media_kind, MAX(timestamp_ms) AS ts
+	FROM messages WHERE unsent = 0 AND pending = 0 GROUP BY thread_id
+) AS newest
+WHERE newest.thread_id = threads.id AND newest.ts > threads.updated_at_ms
+`); err != nil {
+		return fmt.Errorf("repair thread activity: %w", err)
+	}
 	return nil
+}
+
+func unixMilli(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.UnixMilli()
 }
 
 func isDuplicateColumn(err error) bool {
@@ -296,10 +319,14 @@ INSERT INTO threads (id, title, last_preview, thread_type, updated_at_ms)
 VALUES (?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	title=CASE WHEN excluded.title = '' THEN threads.title ELSE excluded.title END,
-	last_preview=CASE WHEN excluded.last_preview = '' THEN threads.last_preview ELSE excluded.last_preview END,
+	last_preview=CASE
+		WHEN excluded.last_preview = '' THEN threads.last_preview
+		WHEN threads.last_preview = '' OR excluded.updated_at_ms >= threads.updated_at_ms THEN excluded.last_preview
+		ELSE threads.last_preview
+	END,
 	thread_type=CASE WHEN excluded.thread_type = 0 THEN threads.thread_type ELSE excluded.thread_type END,
-	updated_at_ms=CASE WHEN excluded.updated_at_ms = 0 THEN threads.updated_at_ms ELSE excluded.updated_at_ms END
-`, t.ID, t.Title, t.LastPreview, t.ThreadType, t.UpdatedAt.UnixMilli())
+	updated_at_ms=MAX(threads.updated_at_ms, excluded.updated_at_ms)
+`, t.ID, t.Title, t.LastPreview, t.ThreadType, unixMilli(t.UpdatedAt))
 	if err != nil {
 		return fmt.Errorf("upsert thread: %w", err)
 	}

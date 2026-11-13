@@ -349,3 +349,66 @@ func TestInTxCommitsOrRollsBack(t *testing.T) {
 		t.Fatalf("committed threads: %d", n)
 	}
 }
+
+func TestThreadActivityOnlyMovesForward(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, err := Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	newest := time.UnixMilli(2_000_000)
+	steps := []struct {
+		name    string
+		thread  Thread
+		preview string
+		at      time.Time
+	}{
+		{"newest", Thread{ID: 1, Title: "Dana", LastPreview: "latest", UpdatedAt: newest}, "latest", newest},
+		{"older page", Thread{ID: 1, LastPreview: "ancient", UpdatedAt: time.UnixMilli(1_000)}, "latest", newest},
+		{"title only", Thread{ID: 1, Title: "Dana B"}, "latest", newest},
+		{"newer message", Thread{ID: 1, LastPreview: "fresh", UpdatedAt: newest.Add(time.Second)}, "fresh", newest.Add(time.Second)},
+	}
+	for _, step := range steps {
+		if err := s.UpsertThread(ctx, step.thread); err != nil {
+			t.Fatalf("%s: %v", step.name, err)
+		}
+		got, err := s.GetThread(ctx, 1)
+		if err != nil {
+			t.Fatalf("%s: %v", step.name, err)
+		}
+		if got.LastPreview != step.preview || !got.UpdatedAt.Equal(step.at) {
+			t.Fatalf("%s: preview %q at %v", step.name, got.LastPreview, got.UpdatedAt.UnixMilli())
+		}
+	}
+}
+
+func TestMigrateRepairsStaleThreadActivity(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dir := t.TempDir()
+	s, err := Open(ctx, dir)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if err := s.UpsertMessage(ctx, Message{ID: "m", ThreadID: 9, SenderID: 2, Text: "newest text", Timestamp: time.UnixMilli(5_000)}); err != nil {
+		t.Fatalf("UpsertMessage: %v", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO threads (id, title, last_preview, updated_at_ms) VALUES (9, 'Old', 'stale', 10)`); err != nil {
+		t.Fatalf("insert stale thread: %v", err)
+	}
+	s.Close()
+	s, err = Open(ctx, dir)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer s.Close()
+	got, err := s.GetThread(ctx, 9)
+	if err != nil {
+		t.Fatalf("GetThread: %v", err)
+	}
+	if got.UpdatedAt.UnixMilli() != 5_000 || got.LastPreview != "newest text" {
+		t.Fatalf("repaired thread: %+v", got)
+	}
+}
